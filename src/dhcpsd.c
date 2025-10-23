@@ -321,15 +321,15 @@ main(int argc, char **argv)
 			ssize_t n = p->p_configure_pools(p, ifp);
 			if (n == -1 && argc != 0)
 				goto exit;
+			if (n == -1 || n == 0)
+				continue;
 			/* XXX When we grow DHCPv6 only open BPF if we configure
 			 * a DHCPv4 pool. */
-			if (n != 0 && dhcp_openbpf(ifp) == -1)
+			if (dhcp_openbpf(ifp) == -1)
 				goto exit;
 			/* First plugin with config wins */
-			if (n != 0) {
-				npools += (size_t)n;
-				break;
-			}
+			npools += (size_t)n;
+			break;
 		}
 	}
 	if (npools == 0) {
@@ -440,6 +440,7 @@ main(int argc, char **argv)
 	}
 #endif
 
+	loginfox(PACKAGE " is now running");
 	dhcp_expire_leases(ctx.ctx_dhcp);
 
 run:
