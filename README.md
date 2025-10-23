@@ -368,8 +368,5 @@ dhcpsd is fast by default:
 
 ## TODO
 
-* ensure we compile with minimal warnings and work on the same OS's
-  dhcpcd supports
-* 0.0.1 release here
 * DHCPv6
 * RA?
