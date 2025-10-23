@@ -76,6 +76,7 @@ svc_recv(void *arg, unsigned short e)
 	ssize_t nread;
 
 	if (e & ELE_HANGUP) {
+hangup:
 		eloop_exit(sctx->svc_ctx->ctx_eloop, EXIT_SUCCESS);
 		return;
 	}
@@ -85,13 +86,14 @@ svc_recv(void *arg, unsigned short e)
 	}
 
 	nread = recvmsg(sctx->svc_fd, &msg, MSG_WAITALL | MSG_PEEK);
+	if (nread == 0)
+		goto hangup;
 	if (nread == -1) {
 		logerr("%s: recvmsg cmd", __func__);
 		return;
 	}
 	if (nread != sizeof(cmd)) {
-		if (nread != 0)
-			logerrx("%s: invalid read len: %zd", __func__, nread);
+		logerrx("%s: invalid read len: %zd", __func__, nread);
 		return;
 	}
 
