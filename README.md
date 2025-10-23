@@ -311,7 +311,6 @@ function commit_lease(hostname, htype, chaddr, clientid, ip, flags, leased, expi
 	end
 
 	return 0, rflags
-	--]]
 end
 --]]
 
@@ -328,8 +327,8 @@ function expire_lease(hostname, clientid, ip, flags)
 		delete_dns(hostname, ip, flags)
 	end
 	return 0
-	--]]
 end
+--]]
 ```
 
 ## ICMP
