@@ -1,0 +1,12 @@
+.clangd
+config.mk
+config.h
+config.log
+
+*.o
+*.So
+*.so
+
+*.tar.xz
+
+\#*

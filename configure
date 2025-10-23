@@ -1,0 +1,756 @@
+#!/bin/sh
+# Try and be like autotools configure, but without autotools
+
+echo "configure args: $*"
+exec 3>config.log
+
+# Ensure that we do not inherit these from env
+STRLCPY=
+SECCOMP=
+OS=
+BUILD=
+HOST=
+HOSTCC=
+TARGET=
+INCLUDEDIR=
+SANITIZE=no
+
+for x do
+	opt=${x%%=*}
+	var=${x#*=}
+	case "$opt" in
+	--os|OS) OS=$var;;
+	--debug) DEBUG=$var;;
+	--disable-debug) DEBUG=no;;
+	--enable-debug) DEBUG=yes;;
+	--prefix) PREFIX=$var;prefix=$var;; # prefix is set for autotools compat
+	--sysconfdir) SYSCONFDIR=$var;;
+	--bindir|--sbindir) SBINDIR=$var;;
+	--libexecdir) LIBEXECDIR=$var;;
+	--statedir|--localstatedir) STATEDIR=$var;;
+	--rundir) RUNDIR=$var;;
+	--runstatedir) RUNSTATEDIR=$var;;
+	--mandir) MANDIR=$var;;
+	--datadir) DATADIR=$var;;
+	--with-ccopts|CFLAGS) CFLAGS=$var;;
+	--disable-seccomp) SECCOMP=no;;
+	--enable-seccomp) SECCOMP=yes;;
+	--sanitise|--sanitize) SANITIZEADDRESS="yes";;
+	-I|--includedir) INCLUDEDIR="$INCLUDEDIR${INCLUDEDIR:+ }-I$var";;
+	CC) CC=$var;;
+	CPPFLAGS) CPPFLAGS=$var;;
+	PKG_CONFIG) PKG_CONFIG=$var;;
+	--build) BUILD=$var;;
+	--host) HOST=$var; HOSTCC=$var-;;
+	--target) TARGET=$var;;
+	--libdir) LIBDIR=$var;;
+	--infodir) ;; # ignore autotools
+	--disable-maintainer-mode|--disable-dependency-tracking) ;;
+	--disable-option-checking|--disable-silent-rules) ;;
+	-V|--version)
+		v=$(sed -ne 's/.*VERSION[[:space:]]*"\([^"]*\).*/\1/p' defs.h);
+		c=$(sed -ne 's/^.*copyright\[\] = "\([^"]*\).*/\1/p' dhcpcd.c);
+		echo "dhcpcd-$v $c";
+		exit 0;;
+	-h|--help) cat <<EOF
+\`configure' configures this package to adapt to many kinds of systems.
+
+Usage: configure [OPTION]... [VAR=VALUE]...
+
+To assign environment variables (e.g., CC, CFLAGS...), specify them as
+VAR=VALUE.  See below for descriptions of some of the useful variables.
+
+Defaults for the options are specified in brackets.
+
+Configuration:
+  -h, --help              display this help and exit
+      --help=short        display options specific to this package
+  -V, --version           display version information and exit
+
+Installation directories:
+  --prefix=PREFIX         install architecture-independent files in PREFIX [/]
+
+By default, \`make install' will install all the files in \'/sbin',
+\`/libexec', etc. You can specify
+an installation prefix other than \`/' using \`--prefix',
+for instance \`--prefix=$HOME'.
+
+For better control, use the options below.
+
+Fine tuning of the installation directories:
+  --bindir=DIR            user executables [PREFIX/bin]
+  --sbindir=DIR           system admin executables [PREFIX/sbin]
+  --libexecdir=DIR        program executables [PREFIX/libexec]
+  --dbdir=DIR             database [STATEDIR/db/dhcpcd]
+  --sysconfdir=DIR        read-only single-machine data [PREFIX/etc]
+  --localstatedir=DIR     modifiable single-machine data [/var]
+  --libdir=DIR            object code libraries [PREFIX/lib]
+  --includedir=DIR        C header files [PREFIX/include]
+  --mandir=DIR            man documentation [PREFIX/man]
+
+System types:
+  --build=BUILD           configure for building on BUILD [guessed]
+  --host=HOST             build programs to run on HOST [BUILD]
+  --target=TARGET         configure for building compilers for TARGET [HOST]
+
+Optional Features:
+  --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
+  --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+
+Some influential environment variables:
+  CC          C compiler command
+  CFLAGS      C compiler flags
+  LDFLAGS     linker flags, e.g. -L<lib dir> if you have libraries in a
+	      nonstandard directory <lib dir>
+  CPPFLAGS    C/C++ preprocessor flags, e.g. -I<include dir> if you have
+	      headers in a nonstandard directory <include dir>
+  CPP         C preprocessor
+  PKG_CONFIG  pkg-config executable
+
+Use these variables to override the choices made by \`configure' or to help
+it to find libraries and programs with nonstandard names/locations.
+EOF
+exit 0
+;;
+	*) echo "$0: WARNING: unknown option $opt" >&2;;
+	esac
+done
+
+: ${SED:=sed}
+: ${GREP:=grep}
+: ${PKG_CONFIG:=pkg-config}
+: ${WC:=wc}
+
+: ${FORK:=yes}
+_which()
+{
+	x="$(which "$1" 2>/dev/null)"
+	if [ $? = 0 ] && [ -n "$x" ]; then
+		echo "$x"
+		return 0
+	fi
+	for x in /sbin/"$1" /usr/sbin/"$1" \
+		/usr/pkg/sbin/"$1" /usr/local/sbin/"$1"
+	do
+		if [ -e "$x" ]; then
+			echo "$x"
+			return 0
+		fi
+	done
+	return 1
+}
+
+CONFIG_H=config.h
+CONFIG_MK=config.mk
+
+if [ -z "$BUILD" ]; then
+	# autoconf target triplet: cpu-vendor-os
+	BUILD=$(uname -m)-unknown-$(uname -s | tr '[:upper:]' '[:lower:]')
+fi
+: ${HOST:=$BUILD}
+
+if [ -z "$OS" ]; then
+	echo "Deriving operating system from ... $HOST"
+	# Derive OS from cpu-vendor-[kernel-]os
+	CPU=${HOST%%-*}
+	REST=${HOST#*-}
+	if [ "$CPU" != "$REST" ]; then
+		VENDOR=${REST%%-*}
+		REST=${REST#*-}
+		if [ "$VENDOR" != "$REST" ]; then
+			# Use kernel if given, otherwise os
+			OS=${REST%%-*}
+		else
+			# 2 tupple
+			OS=$VENDOR
+			VENDOR=
+		fi
+	fi
+
+	# Work with cpu-kernel-os, ie Debian
+	case "$VENDOR" in
+	linux*|kfreebsd*) OS=$VENDOR; VENDOR= ;;
+	esac
+	case "$REST" in
+	gnu/kfreebsd*)		OS="kfreebsd"; VENDOR= ;;
+	esac
+	# Special case
+	case "$OS" in
+	gnu*) OS=hurd;; # No HURD support as yet
+	esac
+fi
+
+echo "Configuring dhcpcd for ... $OS"
+rm -f $CONFIG_H $CONFIG_MK
+echo "# $OS" >$CONFIG_MK
+echo "/* $OS */" >$CONFIG_H
+echo >>$CONFIG_H
+echo "#ifndef CONFIG_H">>$CONFIG_H
+echo "#define CONFIG_H">>$CONFIG_H
+echo >>$CONFIG_H
+
+: ${PREFIX=/usr/local}
+: ${SYSCONFDIR:=$PREFIX/etc}
+: ${SBINDIR:=$PREFIX/sbin}
+: ${LIBDIR:=$PREFIX/lib}
+: ${STATEDIR:=/var}
+: ${DATADIR:=$STATEDIR/db}
+: ${RUNDIR:=$STATEDIR/run}
+: ${MANDIR:=${PREFIX:-/usr}/share/man}
+
+eval SYSCONFDIR="$SYSCONFDIR"
+eval LIBDIR="$LIBDIR"
+eval STATEDIR="$STATEDIR"
+eval DATADIR="$DATADIR"
+eval RUNDIR="$RUNDIR"
+eval MANDIR="$MANDIR"
+
+CONFDIR="$SYSCONFDIR/dhcpsd"
+PLUGINDIR="$LIBDIR/dhcpsd"
+DBDIR="$DATADIR/dhcpsd"
+
+for x in SYSCONFDIR SBINDIR LIBDIR DATADIR RUNDIR MANDIR \
+		    CONFDIR PLUGINDIR DBDIR
+do
+	eval v=\$$x
+	# Make files look nice for import
+	l=$((10 - ${#x}))
+	unset t
+	[ $l -gt 3 ] && t="	"
+	echo "$x=$t	$v" >>$CONFIG_MK
+	unset t
+	[ $l -gt 2 ] && t="	"
+	echo "#define	$x$t		\"$v\"" >>$CONFIG_H
+done
+
+# Always obey CC.
+if [ -n "$CC" ]; then
+	HOSTCC=
+else
+	CC=cc
+	_COMPILERS="cc clang gcc pcc icc"
+fi
+# Only look for a cross compiler if --host and --build are not the same
+if [ -n "$HOSTCC" ] && [ "$BUILD" != "$HOST" ]; then
+	for _CC in $_COMPILERS; do
+		_CC=$(_which "$HOSTCC$_CC")
+		if [ -x "$_CC" ]; then
+			CC=$_CC
+			break
+		fi
+	done
+fi
+if ! type "$CC" >/dev/null 2>&1; then
+	for _CC in $_COMPILERS; do
+		_CC=$(_which "$_CC")
+		if [ -x "$_CC" ]; then
+			CC=$_CC
+			break
+		fi
+	done
+fi
+
+# Set to blank, then append user config
+# We do this so our SED call to append to XCC remains portable
+if [ -n "$CFLAGS" ]; then
+	echo "CFLAGS=" >>$CONFIG_MK
+	echo "CFLAGS+=	$CFLAGS" >>$CONFIG_MK
+fi
+if [ -n "$CPPFLAGS" ]; then
+	echo "CPPFLAGS=" >>$CONFIG_MK
+	echo "CPPFLAGS+=	$CPPFLAGS" >>$CONFIG_MK
+fi
+if [ -n "$INCLUDEDIR" ]; then
+	echo "CPPFLAGS+=	$INCLUDEDIR" >>$CONFIG_MK
+fi
+if [ -n "$LDFLAGS" ]; then
+	echo "LDFLAGS=" >>$CONFIG_MK
+	echo "LDFLAGS+=	$LDFLAGS" >>$CONFIG_MK
+fi
+
+if [ -z "$DEBUG" ] && [ -d .git ]; then
+	printf "Found git checkout ... "
+	DEBUG=yes
+fi
+if [ -n "$DEBUG" ] && [ "$DEBUG" != no ] && [ "$DEBUG" != false ]; then
+	echo "Adding debugging CFLAGS"
+
+	cat <<EOF >>$CONFIG_MK
+CFLAGS=
+CFLAGS+=	-g -Wall -Wextra -Wundef
+CFLAGS+=	-Wmissing-prototypes -Wmissing-declarations
+CFLAGS+=	-Wmissing-format-attribute -Wnested-externs
+CFLAGS+=	-Winline -Wcast-align -Wcast-qual -Wpointer-arith
+CFLAGS+=	-Wreturn-type -Wswitch -Wshadow
+CFLAGS+=	-Wcast-qual -Wwrite-strings
+CFLAGS+=	-Wformat=2
+CFLAGS+=	-Wpointer-sign -Wmissing-noreturn
+EOF
+
+	case "$OS" in
+	mirbsd*|openbsd*|dragonfly*);; # OpenBSD has many redundant decs in system headers
+	bitrig*|solaris*|sunos*)
+			echo "CFLAGS+=	-Wredundant-decls" >>$CONFIG_MK
+			;; # Bitrig spouts many conversion errors with htons
+			   # sunos has many as well
+	*)		echo "CFLAGS+=	-Wredundant-decls" >>$CONFIG_MK
+			echo "CFLAGS+=	-Wconversion" >>$CONFIG_MK
+			;;
+	esac
+
+	case "$OS" in
+	solaris*|sunos*);;
+	*)		echo "CFLAGS+=	-Wstrict-overflow" >>$CONFIG_MK;;
+	esac
+
+	# Turn on extra per compiler debugging
+	case "$CC" in
+	*gcc*)		echo "CFLAGS+=	-Wlogical-op" >>$CONFIG_MK;;
+	esac
+
+	if [ "$SANITIZEADDRESS" = yes ]; then
+		printf "Testing compiler supports address sanitisation ..."
+	cat <<EOF >_test.c
+int main(void) {
+	return 0;
+}
+EOF
+		if $CC -fsanitize=address _test.c -o _test 2>&3; then
+			echo "yes"
+			echo "CPPFLAGS+=	-DASAN" >>$CONFIG_MK
+			echo "CFLAGS+=	-fsanitize=address" >>$CONFIG_MK
+			echo "CFLAGS+=	-fno-omit-frame-pointer" >>$CONFIG_MK
+			echo "LDFLAGS+=	-fsanitize=address" >>$CONFIG_MK
+		else
+			echo "no"
+		fi
+		rm -rf _test.c _test
+	fi
+else
+	echo "CPPFLAGS+=	-DNDEBUG" >>$CONFIG_MK
+fi
+
+case "$OS" in
+freebsd*|kfreebsd*)
+	# FreeBSD hide some newer POSIX APIs behind _GNU_SOURCE ...
+	echo "CPPFLAGS+=	-D_GNU_SOURCE" >>$CONFIG_MK
+	;;
+linux*)
+	echo "CPPFLAGS+=	-D_GNU_SOURCE" >>$CONFIG_MK
+	# Large File Support, should be fine for 32-bit systems.
+	# But if this is the case, why is it not set by default?
+	echo "CPPFLAGS+=	-D_FILE_OFFSET_BITS=64" >>$CONFIG_MK
+	echo "CPPFLAGS+=	-D_LARGEFILE_SOURCE" >>$CONFIG_MK
+	echo "CPPFLAGS+=	-D_LARGEFILE64_SOURCE" >>$CONFIG_MK
+	if [ -z "$SECCOMP" ] || [ "$SECCOMP" != no ]; then
+		echo "CPPFLAGS+=	-DHAVE_SECCOMP" >>$CONFIG_MK
+		echo "SRCS+=		seccomp.c" >>$CONFIG_MK
+	fi
+	;;
+qnx*)
+	echo "CPPFLAGS+=	-D__EXT" >>$CONFIG_MK
+	;;
+solaris*|sunos*)
+	echo "CPPFLAGS+=	-D_XPG4_2 -D__EXTENSIONS__ -DBSD_COMP" \
+	    >>$CONFIG_MK
+	echo "LDADD+=		-ldlpi -lkstat" >>$CONFIG_MK
+	;;
+esac
+
+echo "Using compiler .. $CC"
+# Add CPPFLAGS and CFLAGS to CC for testing features
+XCC="$CC `$SED -n -e 's/CPPFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
+XCC="$XCC `$SED -n -e 's/CFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
+
+# When running tests, treat all warnings as errors.
+# This avoids the situation where we link to a libc symbol
+# without the correct header because it might be hidden behind
+# a _*_SOURCE #define guard.
+XCC="$XCC -Wall -Werror"
+
+# Now test we can use the compiler with our CFLAGS
+cat <<EOF >_test.c
+int main(void) {
+	return 0;
+}
+EOF
+_CC=false
+if $XCC _test.c -o _test >/dev/null 2>&3; then
+	[ -x _test ] && _CC=true
+fi
+rm -f _test.c _test
+if ! $_CC; then
+	echo $XCC
+	echo "$CC does not create executables" >&2
+	exit 1
+fi
+[ "$CC" != cc ] && echo "CC=		$CC" >>$CONFIG_MK
+$CC --version | $SED -e '1!d'
+
+# Try and work out system user
+if [ -z "$DHCPSD_USER" ]; then
+	printf "Detecting a suitable user for dhcpsd ... "
+	for x in _dhcpsd dhcpsd _dhcpd dhcpd; do
+		home=$(getent passwd $x 2>/dev/null | cut -d: -f6)
+		if [ -d "$home" ]; then
+			DHCPSD_USER="$x"
+			break
+		fi
+	done
+fi
+if [ -n "$DHCPSD_USER" ]; then
+	echo "$DHCPSD_USER"
+else
+	DHCPSD_USER=dhcpsd
+	echo
+	echo "No suitable user found for dhcpsd!"
+fi
+
+if [ -z "$SANDBOX" ]; then
+printf "Testing for capsicum and libcasper ... "
+cat <<EOF >_capsicum.c
+#include <sys/capsicum.h>
+#include <casper/cap_net.h>
+int main(void) {
+	return cap_enter();
+}
+EOF
+if $XCC _capsicum.c -o _capsicum -lcasper -lcap_net 2>&3; then
+	echo "yes"
+	echo "#define	HAVE_CASPER" >>$CONFIG_H
+	# Casper header files need this
+	#echo "CPPFLAGS+=	-DHAVE_CASPER" >>$CONFIG_MK
+	echo "LDADD+=		-lcasper -lcap_net" >>$CONFIG_MK
+	SANDBOX=capsicum
+else
+	echo "no"
+fi
+	rm -f _capsicum.c _capsicum
+fi
+
+if [ -z "$SANDBOX" ]; then
+	printf "Testing for pledge ... "
+	cat <<EOF >_pledge.c
+#include <unistd.h>
+int main(void) {
+	return pledge("stdio", NULL);
+}
+EOF
+	if $XCC _pledge.c -o _pledge 2>&3; then
+		echo "yes"
+		echo "#define	HAVE_PLEDGE" >>$CONFIG_H
+		SANDBOX=pledge
+	else
+		echo "no"
+	fi
+	rm -f _pledge.c _pledge
+fi
+
+abort=false
+# We require the libc to support non standard functions, like getifaddrs
+printf "Testing for getifaddrs ... "
+cat <<EOF >_getifaddrs.c
+#include <sys/types.h>
+#include <ifaddrs.h>
+int main(void) {
+	struct ifaddrs *ifap;
+	return getifaddrs(&ifap);
+}
+EOF
+LIBSOCKET=
+if $XCC _getifaddrs.c -o _getifaddrs 2>&3; then
+	echo "yes"
+elif $XCC _getifaddrs.c -o _getifaddrs -lsocket 2>&3; then
+	LIBSOCKET=-lsocket
+	echo "yes (-lsocket)"
+	echo "LDADD+=		-lsocket" >>$CONFIG_MK
+else
+	echo "no"
+	echo "libc support for getifaddrs is required - aborting" >&2
+	abort=true
+fi
+rm -f _getifaddrs.c _getifaddrs
+$abort && exit 1
+
+printf "Testing for ifaddrs.ifa_addrflags ... "
+cat <<EOF >_getifaddrs_addrflags.c
+#include <sys/types.h>
+#include <ifaddrs.h>
+int main(void) {
+	struct ifaddrs *ifap;
+	getifaddrs(&ifap);
+	return (int)ifap->ifa_addrflags;
+}
+EOF
+if $XCC _getifaddrs_addrflags.c -o _getifaddrs_addrflags $LIBSOCKET 2>&3; then
+	echo "yes"
+	echo "#define	HAVE_IFADDRS_ADDRFLAGS" >>$CONFIG_H
+else
+	echo "no"
+fi
+rm -f _getifaddrs_addrflags.c _getifaddrs_addrflags
+
+printf "Testing for clock_gettime ... "
+cat <<EOF >_clock_gettime.c
+#include <time.h>
+int main(void) {
+	struct timespec ts;
+	return clock_gettime(CLOCK_MONOTONIC, &ts);
+}
+EOF
+if $XCC _clock_gettime.c -o _clock_gettime 2>&3; then
+	echo "yes"
+elif $XCC _clock_gettime.c -lrt -o _clock_gettime 2>&3; then
+	echo "yes (-lrt)"
+	echo "LDADD+=		-lrt" >>$CONFIG_MK
+else
+	echo "no"
+	echo "libc support for clock_getttime is required - aborting" >&2
+	abort=true
+fi
+rm -f _clock_gettime.c _clock_gettime
+$abort && exit 1
+
+if [ -z "$CLOSEFROM" ]; then
+	printf "Testing for closefrom ... "
+	cat <<EOF >_closefrom.c
+#include <stdlib.h>
+#include <unistd.h>
+int main(void) {
+	closefrom(3);
+	return 0;
+}
+EOF
+	if $XCC _closefrom.c -o _closefrom 2>&3; then
+		CLOSEFROM=yes
+	else
+		CLOSEFROM=no
+	fi
+	echo "$CLOSEFROM"
+fi
+rm -f _closefrom.c _closefrom
+if [ "$CLOSEFROM" = no ]; then
+	echo "COMPAT_SRCS+=	compat/closefrom.c" >>$CONFIG_MK
+	echo "#include			\"compat/closefrom.h\"" >>$CONFIG_H
+fi
+
+printf "Testing ioctl request type ... "
+cat <<EOF >_ioctl.c
+#include <sys/ioctl.h>
+int main(void) {
+	unsigned long req = 0;
+	return ioctl(3, req, &req);
+}
+EOF
+if $XCC _ioctl.c -o _ioctl 2>&3; then
+	IOCTL_REQ="unsigned long"
+else
+	IOCTL_REQ="int"
+fi
+echo "$IOCTL_REQ"
+# Our default is unsigned long
+# We can still define it, but it makes the code path slightly bigger
+if [ "$IOCTL_REQ" != "unsigned long" ]; then
+	echo "#define	IOCTL_REQUEST_TYPE	$IOCTL_REQ" >>$CONFIG_H
+fi
+rm -f _ioctl.c _ioctl
+
+printf "Testing for inet_ntoa ... "
+cat <<EOF >_inet_ntoa.c
+#include <netinet/in.h>
+#include <arpa/inet.h>
+int main(void) {
+	struct in_addr in = { .s_addr = 0 };
+	inet_ntoa(in);
+	return 0;
+}
+EOF
+if $XCC _inet_ntoa.c -o _inet_ntoa 2>&3; then
+	echo "yes"
+elif $XCC _inet_ntoa.c -lnsl -o _inet_ntoa 2>&3; then
+	echo "yes (-lnsl)"
+	echo "LDADD+=		-lnsl" >>$CONFIG_MK
+elif $XCC _inet_ntoa.c -lsocket -o _inet_ntoa 2>&3; then
+	echo "yes (-lsocket)"
+	echo "LDADD+=		-lsocket" >>$CONFIG_MK
+else
+	echo "no"
+	echo "libc support for inet_ntoa is required - aborting" >&2
+	abort=true
+fi
+rm -f _inet_ntoa.c _inet_ntoa
+$abort && exit 1
+
+if [ -z "$STRLCPY" ]; then
+	printf "Testing for strlcpy ... "
+	cat <<EOF >_strlcpy.c
+#include <string.h>
+int main(void) {
+	const char s1[] = "foo";
+	char s2[10];
+	return (int)strlcpy(s2, s1, sizeof(s2));
+}
+EOF
+	if $XCC _strlcpy.c -o _strlcpy 2>&3; then
+		STRLCPY=yes
+	else
+		STRLCPY=no
+	fi
+	echo "$STRLCPY"
+	rm -f _strlcpy.c _strlcpy
+fi
+if [ "$STRLCPY" = no ]; then
+	echo "COMPAT_SRCS+=	compat/strlcpy.c" >>$CONFIG_MK
+	echo "#include			\"compat/strlcpy.h\"" >>$CONFIG_H
+fi
+
+if [ -z "$DPRINTF" ]; then
+	printf "Testing for dprintf ... "
+	cat <<EOF >_dprintf.c
+#include <stdio.h>
+int main(void) {
+	return dprintf(0, "%d", 0);
+}
+EOF
+	if $XCC _dprintf.c -o _dprintf 2>&3; then
+		DPRINTF=yes
+	else
+		DPRINTF=no
+	fi
+	echo "$DPRINTF"
+	rm -f _dprintf.c _dprintf
+fi
+if [ "$DPRINTF" = no ]; then
+	echo "COMPAT_SRCS+=	compat/dprintf.c" >>$CONFIG_MK
+	echo "#include			\"compat/dprintf.h\"" >>$CONFIG_H
+fi
+
+if [ -z "$RBTREE" ]; then
+	printf "Testing for rb_tree_init ... "
+	cat <<EOF >_rbtree.c
+#include <sys/rbtree.h>
+static rb_tree_ops_t ops;
+int main(void) {
+	rb_tree_t tree;
+	rb_tree_init(&tree, &ops);
+	return 0;
+}
+EOF
+	if $XCC _rbtree.c -o _rbtree 2>&3; then
+		RBTREE=yes
+	else
+		RBTREE=no
+	fi
+	echo "$RBTREE"
+	rm -f _rbtree.c _rbtree
+fi
+if [ "$RBTREE" = no ]; then
+	echo "VENDOR_SRCS+=	vendor/rbtree.c" >>$CONFIG_MK
+	# Tell rbtree.c to #include "rbtree.h" rather than sys/rbtree.h
+	echo "RBTREE_CPPFLAGS+=	-DRBLOCAL" >>$CONFIG_MK
+else
+	echo "#define	HAVE_SYS_RBTREE_H" >>$CONFIG_H
+fi
+
+if [ -z "$REALLOCARRAY" ]; then
+	printf "Testing for reallocarray ... "
+	cat <<EOF >_reallocarray.c
+#include <stdlib.h>
+
+int main(void) {
+	void *foo = reallocarray(NULL, 0, 0);
+	return foo == NULL ? 1 : 0;
+}
+EOF
+	if $XCC _reallocarray.c -o _reallocarray 2>&3; then
+		REALLOCARRAY=yes
+	else
+		REALLOCARRAY=no
+	fi
+	echo "$REALLOCARRAY"
+	rm -f _reallocarray.c _reallocarray
+fi
+if [ "$REALLOCARRAY" = no ]; then
+	echo "COMPAT_SRCS+=	compat/reallocarray.c" >>$CONFIG_MK
+	echo "#include			\"compat/reallocarray.h\"">>$CONFIG_H
+fi
+# Set this for eloop
+echo "#define	HAVE_REALLOCARRAY" >>$CONFIG_H
+
+# Detect a polling mechanism.
+# See src/eloop.c as to why we only detect ppoll, pollts and pselect and
+# not others like epoll or kqueue.
+if [ -z "$POLL" ]; then
+	printf "Testing for ppoll ... "
+	cat <<EOF >_ppoll.c
+#include <poll.h>
+#include <stddef.h>
+int main(void) {
+	struct pollfd fds;
+	return ppoll(&fds, 1, NULL, NULL);
+}
+EOF
+	if $XCC _ppoll.c -o _ppoll 2>&3; then
+		POLL=ppoll
+		echo "yes"
+	else
+		echo "no"
+		exit 1
+	fi
+	rm -f _ppoll.c _ppoll
+fi
+
+if [ "$LUA" != no ]; then
+	printf "Checking for lua ... "
+	for LUA_VERSION in lua-5.4 lua54 lua; do
+		LUA_CFLAGS=$("$PKG_CONFIG" --cflags "$LUA_VERSION" 2>&3)
+		LUA_LIBS=$("$PKG_CONFIG" --libs "$LUA_VERSION" 2>&3)
+		if [ -n "$LUA_LIBS" ]; then
+			echo "$LUA_VERSION"
+			echo "LUA_CFLAGS=	$LUA_CFLAGS" >>$CONFIG_MK
+			echo "LUA_LIBS=	$LUA_LIBS" >>$CONFIG_MK
+			break
+		fi
+	done
+	if [ -n "$LUA_LIBS" ]; then
+		echo "LUA_PLUGIN=	lua" >>$CONFIG_MK
+		echo "LUA_MAN8+=	dhcpsd_lua.8" >>$CONFIG_MK
+	else
+		echo "not found"
+	fi
+
+	if [ -n "$LUA_CFLAGS" ]; then
+		echo "If:" >.clangd
+		echo "  PathMatch: src/plugins/lua.c" >>.clangd
+		echo "CompileFlags:" >>.clangd
+		echo "  Add: [-I.., -I../.., $LUA_CFLAGS]" >>.clangd
+	fi
+fi
+
+echo >>$CONFIG_H
+echo "#endif /*CONFIG_H*/">>$CONFIG_H
+
+cat <<EOF >>.clangd
+---
+If:
+  PathMatch: src/plugins/.*\.c
+CompileFlags:
+  Add: [-I.., -I../..]
+---
+If:
+  PathMatch: src/.*\.c
+CompileFlags:
+  Add: -I..
+EOF
+
+echo
+echo "   SYSCONFDIR =		$SYSCONFDIR"
+echo "   SBINDIR =		$SBINDIR"
+echo "   LIBDIR =		$LIBDIR"
+echo "   DATADIR =		$DATADIR"
+echo "   RUNDIR =		$RUNDIR"
+echo "   MANDIR =		$MANDIR"
+if [ "$PRIVSEP" = yes ]; then
+	echo "   PRIVSEPUSER =	$PRIVSEP_USER"
+fi
+echo

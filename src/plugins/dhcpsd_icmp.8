@@ -1,0 +1,80 @@
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2025 Roy Marples
+.\" All rights reserved
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd July 25, 2025
+.Dt DHCPSD_ICMP 8
+.Os
+.Sh NAME
+.Nm icmp
+.Nd detects an in use IP address via
+.Xr icmp 4 .
+.Sh DESCRIPTION
+When an IP address is selected in response to a DHCP DISCOVER message,
+.Nm dhcpsd
+will send an ICMP ECHOREQUEST message to the IP address to discover if
+it is already in use or not.
+.Pp
+All the following rules must be true for sending an ICMP ECHOREQUEST:
+.Bl -bullet
+.It
+The address selected is due to a DHCP DISCOVER message.
+.It
+The address must not have been configured by a plugin.
+.It
+The address must not have an active lease.
+.El
+.Pp
+Any one of the following rules must also be true for sending an
+ICMP ECHOREQUEST:
+.Bl -bullet
+.It
+The address has not been offered to client before.
+.It
+The address is being offered to a client different from the last.
+.It
+The address is being offered to the same client that previously leased it and
+a least N seconds have elapsed.
+.El
+.Pp
+If an ICMP ECHO is received then the address treated as it it has been
+DHCP DECLINEd and another one is selected,
+which may also be probed using the above rules.
+If an ICMP ECHO is not received within N seconds then
+.Nm dhcpsd
+assumes that the address is not in use and offers it to the client.
+.Pp
+The client SHOULD do it's own address checking via
+.Xr arp 4
+and if it's in use then the client should send a DHCP DECLINE message to
+.Nm dhcpsd
+and DHCP DISCOVER a new address.
+.Sh SEE ALSO
+.Xr dhcpsd 8 .
+.Sh AUTHORS
+.An Roy Marples Aq Mt roy@marples.name
+.Sh BUGS
+Please report them to
+.Lk https://roy.marples.name/projects/dhcpsd
