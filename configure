@@ -36,6 +36,7 @@ for x do
 	--disable-seccomp) SECCOMP=no;;
 	--enable-seccomp) SECCOMP=yes;;
 	--sanitise|--sanitize) SANITIZEADDRESS="yes";;
+	--user) DHCPSD_USER=$var;;
 	-I|--includedir) INCLUDEDIR="$INCLUDEDIR${INCLUDEDIR:+ }-I$var";;
 	CC) CC=$var;;
 	CPPFLAGS) CPPFLAGS=$var;;
@@ -394,17 +395,19 @@ if [ -z "$DHCPSD_USER" ]; then
 		home=$(getent passwd $x 2>/dev/null | cut -d: -f6)
 		if [ -d "$home" ]; then
 			DHCPSD_USER="$x"
+			echo "$DHCPSD_USER"
 			break
 		fi
 	done
-fi
-if [ -n "$DHCPSD_USER" ]; then
-	echo "$DHCPSD_USER"
+	if [ -z "$DHCPSD_USER" ]; then
+		DHCPSD_USER=dhcpsd
+		echo
+		echo "No suitable user found for dhcpsd!"
+	fi
 else
-	DHCPSD_USER=dhcpsd
-	echo
-	echo "No suitable user found for dhcpsd!"
+	echo "Using $DHCPSD_USER as the user to run dhcpsd"
 fi
+echo "#define DHCPSD_USER		\"$DHCPSD_USER\"" >>$CONFIG_H
 
 if [ -z "$SANDBOX" ]; then
 printf "Testing for capsicum and libcasper ... "
