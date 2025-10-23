@@ -675,12 +675,10 @@ lua_init(struct plugin *p)
 	/* We want to sanitize the LUA script in the main process so we
 	 * can give a visible error to the user and abort startup early */
 	if (luaL_dofile(L, LUA_CONFIG) != LUA_OK) {
-		if (!(p->p_ctx->ctx_options & DHCPSD_UNPRIV)) {
+		if (!(p->p_ctx->ctx_options & DHCPSD_UNPRIV))
 			logerrx("%s: %s", lua_name,
 			    lua_tostring(l->L, lua_gettop(l->L)));
-			return -1;
-		} else
-			return 0;
+		return -1;
 	}
 	if (!(p->p_ctx->ctx_options & DHCPSD_UNPRIV)) {
 		lua_close(L);
