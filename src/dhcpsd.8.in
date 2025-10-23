@@ -90,6 +90,7 @@ configuration.
 .Xr dhcpsd_leasefile 8 ,
 .Xr dhcpsd_ethers 8 ,
 .Xr dhcpsd_addrinfo 8 ,
+.Xr dhcpsd_lua 8
 .Sh AUTHORS
 .An Roy Marples Aq Mt roy@marples.name
 .Sh BUGS
