@@ -5,6 +5,8 @@ echo "configure args: $*"
 exec 3>config.log
 
 # Ensure that we do not inherit these from env
+ARC4RANDOM=
+CLOSEFROM=
 STRLCPY=
 SECCOMP=
 OS=
@@ -475,24 +477,6 @@ fi
 rm -f _getifaddrs.c _getifaddrs
 $abort && exit 1
 
-printf "Testing for ifaddrs.ifa_addrflags ... "
-cat <<EOF >_getifaddrs_addrflags.c
-#include <sys/types.h>
-#include <ifaddrs.h>
-int main(void) {
-	struct ifaddrs *ifap;
-	getifaddrs(&ifap);
-	return (int)ifap->ifa_addrflags;
-}
-EOF
-if $XCC _getifaddrs_addrflags.c -o _getifaddrs_addrflags $LIBSOCKET 2>&3; then
-	echo "yes"
-	echo "#define	HAVE_IFADDRS_ADDRFLAGS" >>$CONFIG_H
-else
-	echo "no"
-fi
-rm -f _getifaddrs_addrflags.c _getifaddrs_addrflags
-
 printf "Testing for clock_gettime ... "
 cat <<EOF >_clock_gettime.c
 #include <time.h>
@@ -513,6 +497,27 @@ else
 fi
 rm -f _clock_gettime.c _clock_gettime
 $abort && exit 1
+
+if [ -z "$ARC4RANDOM" ]; then
+	printf "Testing for arc4random ... "
+	cat <<EOF >_arc4random.c
+#include <stdlib.h>
+int main(void) {
+	return (int)arc4random();
+}
+EOF
+	if $XCC _arc4random.c -o _arc4random 2>&3; then
+		ARC4RANDOM=yes
+	else
+		ARC4RANDOM=no
+	fi
+	echo "$ARC4RANDOM"
+	rm -f _arc4random.c _arc4random
+fi
+if [ "$ARC4RANDOM" = no ]; then
+	echo "COMPAT_SRCS+=	compat/arc4random.c" >>$CONFIG_MK
+	echo "#include			\"compat/arc4random.h\"" >>$CONFIG_H
+fi
 
 if [ -z "$CLOSEFROM" ]; then
 	printf "Testing for closefrom ... "
@@ -679,29 +684,6 @@ if [ "$REALLOCARRAY" = no ]; then
 fi
 # Set this for eloop
 echo "#define	HAVE_REALLOCARRAY" >>$CONFIG_H
-
-# Detect a polling mechanism.
-# See src/eloop.c as to why we only detect ppoll, pollts and pselect and
-# not others like epoll or kqueue.
-if [ -z "$POLL" ]; then
-	printf "Testing for ppoll ... "
-	cat <<EOF >_ppoll.c
-#include <poll.h>
-#include <stddef.h>
-int main(void) {
-	struct pollfd fds;
-	return ppoll(&fds, 1, NULL, NULL);
-}
-EOF
-	if $XCC _ppoll.c -o _ppoll 2>&3; then
-		POLL=ppoll
-		echo "yes"
-	else
-		echo "no"
-		exit 1
-	fi
-	rm -f _ppoll.c _ppoll
-fi
 
 if [ "$LUA" != no ]; then
 	printf "Checking for lua ... "
