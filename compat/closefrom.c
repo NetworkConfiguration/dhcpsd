@@ -30,6 +30,8 @@
 #include <unistd.h>
 
 #if defined(__linux__) && defined(SYS_close_range)
+#include <limits.h>
+
 static inline int
 sys_close_range(unsigned int fd, unsigned int max_fd, unsigned int flags)
 {
