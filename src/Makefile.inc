@@ -1,5 +1,6 @@
 # Remove some warnings
-VERSTABLE_CFLAGS=	-Wno-cast-align -Wno-cast-qual -Wno-conversion -Wno-sign-conversion
+VERSTABLE_CFLAGS=	-Wno-cast-align -Wno-cast-qual -Wno-conversion
+VERSTABLE_CFLAGS+=	-Wno-sign-conversion -Wno-inline
 
 check-format:
 	find . -iname "*.c" -o -iname "*.h" -not -name verstable.h | \
