@@ -346,10 +346,10 @@ sa_pton(struct sockaddr *sa, const char *src)
 	void *addr;
 	switch (sa->sa_family) {
 	case AF_INET:
-		addr = &((struct sockaddr_in *)sa)->sin_addr.s_addr;
+		addr = &((struct sockaddr_in *)(void *)sa)->sin_addr.s_addr;
 		break;
 	case AF_INET6:
-		addr = &((struct sockaddr_in6 *)sa)->sin6_addr.s6_addr;
+		addr = &((struct sockaddr_in6 *)(void *)sa)->sin6_addr.s6_addr;
 		break;
 	default:
 		errno = EAFNOSUPPORT;

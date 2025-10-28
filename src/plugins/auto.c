@@ -82,8 +82,8 @@ auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 			continue;
 		if (strcmp(ifa->ifa_name, ifp->if_name) != 0)
 			continue;
-		sin_addr = (struct sockaddr_in *)ifa->ifa_addr;
-		sin_mask = (struct sockaddr_in *)ifa->ifa_netmask;
+		sin_addr = (struct sockaddr_in *)(void *)ifa->ifa_addr;
+		sin_mask = (struct sockaddr_in *)(void *)ifa->ifa_netmask;
 		cidr = inet_ntocidr(&sin_mask->sin_addr);
 
 		if (inet_private_address(&sin_addr->sin_addr) == -1) {
