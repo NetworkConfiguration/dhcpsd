@@ -279,7 +279,6 @@ if [ -n "$DEBUG" ] && [ "$DEBUG" != no ] && [ "$DEBUG" != false ]; then
 	echo "Adding debugging CFLAGS"
 
 	cat <<EOF >>$CONFIG_MK
-CFLAGS=
 CFLAGS+=	-g -Wall -Wextra -Wundef
 CFLAGS+=	-Wmissing-prototypes -Wmissing-declarations
 CFLAGS+=	-Wmissing-format-attribute -Wnested-externs
@@ -362,8 +361,8 @@ esac
 
 echo "Using compiler .. $CC"
 # Add CPPFLAGS and CFLAGS to CC for testing features
-XCC="$CC `$SED -n -e 's/CPPFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
-XCC="$XCC `$SED -n -e 's/CFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
+XCC="$CC `CPPFLAGS= $SED -n -e 's/CPPFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
+XCC="$XCC `CFLAGS= $SED -n -e 's/CFLAGS+=*\(.*\)/\1/p' $CONFIG_MK`"
 
 # When running tests, treat all warnings as errors.
 # This avoids the situation where we link to a libc symbol
@@ -612,27 +611,6 @@ if [ "$STRLCPY" = no ]; then
 	echo "#include			\"compat/strlcpy.h\"" >>$CONFIG_H
 fi
 
-if [ -z "$DPRINTF" ]; then
-	printf "Testing for dprintf ... "
-	cat <<EOF >_dprintf.c
-#include <stdio.h>
-int main(void) {
-	return dprintf(0, "%d", 0);
-}
-EOF
-	if $XCC _dprintf.c -o _dprintf 2>&3; then
-		DPRINTF=yes
-	else
-		DPRINTF=no
-	fi
-	echo "$DPRINTF"
-	rm -f _dprintf.c _dprintf
-fi
-if [ "$DPRINTF" = no ]; then
-	echo "COMPAT_SRCS+=	compat/dprintf.c" >>$CONFIG_MK
-	echo "#include			\"compat/dprintf.h\"" >>$CONFIG_H
-fi
-
 if [ -z "$RBTREE" ]; then
 	printf "Testing for rb_tree_init ... "
 	cat <<EOF >_rbtree.c
@@ -656,6 +634,10 @@ if [ "$RBTREE" = no ]; then
 	echo "VENDOR_SRCS+=	vendor/rbtree.c" >>$CONFIG_MK
 	# Tell rbtree.c to #include "rbtree.h" rather than sys/rbtree.h
 	echo "RBTREE_CPPFLAGS+=	-DRBLOCAL" >>$CONFIG_MK
+	# Remove unused warning from compile
+	echo "RBTREE_CPPFLAGS+=	\"-D__unused=__attribute__((__unused__))\"" >>$CONFIG_MK
+	# Enjoy the same optimisation as NetBSD's libc
+	echo "RBTREE_CPPFLAGS+=	\"-D__predict_false(exp)=__builtin_expect((exp) ? 1 : 0, 0)\"" >>$CONFIG_MK
 else
 	echo "#define	HAVE_SYS_RBTREE_H" >>$CONFIG_H
 fi
