@@ -8,7 +8,7 @@ on the master branch where we handle any fallout.
 This makes updating vendor imports easy.
 
 Vendor sources are imported from these locations:
-queue.h     - https://cvsweb.netbsd.org/bsdweb.cgi/src/sys/sys/queue.h
-rbtree.c    - https://cvsweb.netbsd.org/bsdweb.cgi/src/common/lib/libc/gen/rbtree.c
-rbtree.h    - https://cvsweb.netbsd.org/bsdweb.cgi/src/sys/sys/rbtree.h
-verstable.h - https://github.com/JacksonAllan/Verstable
+* queue.h     - https://cvsweb.netbsd.org/bsdweb.cgi/src/sys/sys/queue.h
+* rbtree.c    - https://cvsweb.netbsd.org/bsdweb.cgi/src/common/lib/libc/gen/rbtree.c
+* rbtree.h    - https://cvsweb.netbsd.org/bsdweb.cgi/src/sys/sys/rbtree.h
+* verstable.h - https://github.com/JacksonAllan/Verstable
