@@ -572,7 +572,7 @@ dhcp_findpool(const struct interface *ifp, in_addr_t addr, bool strict)
 	size_t npools;
 
 	for (pool = ifp->if_pools, npools = ifp->if_npools; npools != 0;
-	     pool++, npools--) {
+	    pool++, npools--) {
 		if (ntohl(addr) >= ntohl(pool->dp_from.s_addr) &&
 		    ntohl(addr) <= ntohl(pool->dp_to.s_addr))
 			return pool;

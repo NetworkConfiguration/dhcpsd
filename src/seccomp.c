@@ -80,7 +80,7 @@
 	BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, (_nr), 0, 6),                      \
 	    BPF_STMT(BPF_LD + BPF_W + BPF_ABS,                                 \
 		offsetof(struct seccomp_data, args[(_arg)]) + SECCOMP_ARG_LO), \
-	    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ((_val)&0xffffffff), 0, 3),    \
+	    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ((_val) & 0xffffffff), 0, 3),  \
 	    BPF_STMT(BPF_LD + BPF_W + BPF_ABS,                                 \
 		offsetof(struct seccomp_data, args[(_arg)]) + SECCOMP_ARG_HI), \
 	    BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K,                                \

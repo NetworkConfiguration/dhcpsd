@@ -337,7 +337,7 @@ icmp_unload(struct plugin *p)
 	icmp_addr_map_itr itr;
 
 	for (itr = vt_first(&ctx->i_hold); !vt_is_end(itr);
-	     itr = vt_next(itr)) {
+	    itr = vt_next(itr)) {
 		free(itr.data->val->ih_data);
 		free(itr.data->val);
 	}

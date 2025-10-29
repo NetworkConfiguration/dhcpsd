@@ -210,7 +210,7 @@ unpriv_dispatch(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 
 	memset(reply, 0, sizeof(*reply) * n);
 	for (ain = ai_result, rn = reply; ain != NULL;
-	     ain = ain->ai_next, rn++) {
+	    ain = ain->ai_next, rn++) {
 		rn->u_ai_flags = ain->ai_flags;
 		rn->u_ai_family = ain->ai_family;
 		rn->u_ai_socktype = ain->ai_socktype;

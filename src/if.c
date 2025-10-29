@@ -197,7 +197,7 @@ if_findifpfromcmsg(struct ctx *ctx, struct msghdr *msg, void *to)
 #endif
 
 	for (cm = (struct cmsghdr *)CMSG_FIRSTHDR(msg); cm;
-	     cm = (struct cmsghdr *)CMSG_NXTHDR(msg, cm)) {
+	    cm = (struct cmsghdr *)CMSG_NXTHDR(msg, cm)) {
 		if (cm->cmsg_level == IPPROTO_IP) {
 			switch (cm->cmsg_type) {
 #ifdef IP_RECVIF

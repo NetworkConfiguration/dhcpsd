@@ -74,10 +74,10 @@ struct plugin {
 struct plugin *plugin_first(struct ctx *);
 struct plugin *plugin_next(struct plugin *);
 
-#define PLUGIN_FOREACH(ctx, plugin)                       \
-	for ((plugin) = plugin_first((ctx));              \
-	     (plugin) != NULL && (plugin)->p_ctx != NULL; \
-	     plugin = plugin_next((plugin)))
+#define PLUGIN_FOREACH(ctx, plugin)                      \
+	for ((plugin) = plugin_first((ctx));             \
+	    (plugin) != NULL && (plugin)->p_ctx != NULL; \
+	    plugin = plugin_next((plugin)))
 
 int plugin_init(struct plugin *);
 int plugin_load(struct ctx *, const char *);

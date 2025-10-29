@@ -68,7 +68,7 @@ svc_recv(void *arg, unsigned short e)
 	ssize_t nread;
 
 	if (e & ELE_HANGUP) {
-hangup:
+	hangup:
 		eloop_exit(sctx->svc_ctx->ctx_eloop, EXIT_SUCCESS);
 		eloop_exit(sctx->svc_eloop, EXIT_SUCCESS);
 		return;
