@@ -30,10 +30,30 @@
 #include <sys/param.h>
 #include <sys/time.h>
 
+#ifdef BSD
+#include <sys/event.h>
+#define USE_KQUEUE
+#define NFD 2
+#if defined(__NetBSD__) || defined(__OpenBSD__)
+#define HAVE_KQUEUE1
+#endif
+#if defined(__DragonFly__) || defined(__FreeBSD__)
+#define _kevent(kq, cl, ncl, el, nel, t) \
+	kevent((kq), (cl), (int)(ncl), (el), (int)(nel), (t))
+#else
+#define _kevent kevent
+#endif
+#elif defined(__linux__)
+#include <sys/epoll.h>
+#define USE_EPOLL
+#else
+#include <poll.h>
+#define USE_PPOLL
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -65,13 +85,23 @@
 #define UTIME_MAX (TIME_MAX * 2) + 1
 #endif
 
+#ifndef NFD
+#define NFD 1
+#endif
+
+#ifndef UNUSED
+#define UNUSED(a) (void)(a)
+#endif
+
 struct eloop_event {
 	TAILQ_ENTRY(eloop_event) next;
 	int fd;
 	void (*cb)(void *, unsigned short);
 	void *cb_arg;
 	unsigned short events;
+#ifdef USE_PPOLL
 	struct pollfd *pollfd;
+#endif
 };
 
 struct eloop_timeout {
@@ -85,7 +115,7 @@ struct eloop_timeout {
 
 struct eloop {
 	TAILQ_HEAD(event_head, eloop_event) events;
-	nfds_t nevents;
+	size_t nevents;
 	struct event_head free_events;
 
 	struct timespec now;
@@ -98,13 +128,20 @@ struct eloop {
 	void (*signal_cb)(int, void *);
 	void *signal_cb_ctx;
 
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	int fd;
+#endif
+#if defined(USE_KQUEUE)
+	struct kevent *fds;
+#elif defined(USE_EPOLL)
+	struct epoll_event *fds;
+#elif defined(USE_PPOLL)
 	struct pollfd *fds;
-	nfds_t nfds;
+#endif
+	size_t nfds;
 
-	struct eloop_event *one_event;
 	int exitcode;
 	bool exitnow;
-	bool endwait;
 	bool events_need_setup;
 };
 
@@ -129,23 +166,36 @@ static int
 eloop_event_setup_fds(struct eloop *eloop)
 {
 	struct eloop_event *e, *ne;
+#if defined(USE_KQUEUE)
+	struct kevent *pfd;
+	size_t nfds = eloop->nsignals;
+#elif defined(USE_EPOLL)
+	struct epoll_event *pfd;
+	size_t nfds = 0;
+#elif defined(USE_PPOLL)
 	struct pollfd *pfd;
+	size_t nfds = 0;
+#endif
 
-	if (eloop->nfds < eloop->nevents) {
-		pfd = eloop_realloca(eloop->fds, eloop->nevents, sizeof(*pfd));
+	nfds += eloop->nevents;
+	if (eloop->nfds < nfds) {
+		pfd = eloop_realloca(eloop->fds, nfds, sizeof(*pfd));
 		if (pfd == NULL)
 			return -1;
 		eloop->fds = pfd;
-		eloop->nfds = eloop->nevents;
+		eloop->nfds = nfds;
 	}
 
+#ifdef USE_PPOLL
 	pfd = eloop->fds;
+#endif
 	TAILQ_FOREACH_SAFE(e, &eloop->events, next, ne) {
 		if (e->fd == -1) {
 			TAILQ_REMOVE(&eloop->events, e, next);
 			TAILQ_INSERT_TAIL(&eloop->free_events, e, next);
 			continue;
 		}
+#ifdef USE_PPOLL
 		e->pollfd = pfd;
 		pfd->fd = e->fd;
 		pfd->events = 0;
@@ -155,6 +205,7 @@ eloop_event_setup_fds(struct eloop *eloop)
 			pfd->events |= POLLOUT;
 		pfd->revents = 0;
 		pfd++;
+#endif
 	}
 
 	eloop->events_need_setup = false;
@@ -172,6 +223,14 @@ eloop_event_add(struct eloop *eloop, int fd, unsigned short events,
     void (*cb)(void *, unsigned short), void *cb_arg)
 {
 	struct eloop_event *e;
+	bool added;
+#if defined(USE_KQUEUE)
+	struct kevent ke[2], *kep = &ke[0];
+	size_t n;
+#elif defined(USE_EPOLL)
+	struct epoll_event epe;
+	int op;
+#endif
 
 	if (fd == -1 || !(events & (ELE_READ | ELE_WRITE | ELE_HANGUP))) {
 		errno = EINVAL;
@@ -184,6 +243,7 @@ eloop_event_add(struct eloop *eloop, int fd, unsigned short events,
 	}
 
 	if (e == NULL) {
+		added = true;
 		e = TAILQ_FIRST(&eloop->free_events);
 		if (e != NULL)
 			TAILQ_REMOVE(&eloop->free_events, e, next);
@@ -197,12 +257,59 @@ eloop_event_add(struct eloop *eloop, int fd, unsigned short events,
 		eloop->nevents++;
 		e->fd = fd;
 		e->events = 0;
-	}
+	} else
+		added = false;
 
 	e->cb = cb;
 	e->cb_arg = cb_arg;
 
+#if defined(USE_KQUEUE)
+	n = 2;
+	if (events & ELE_READ && !(e->events & ELE_READ))
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_READ, EV_ADD, 0, 0, e);
+	else if (!(events & ELE_READ) && e->events & ELE_READ)
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_READ, EV_DELETE, 0, 0, e);
+	else
+		n--;
+	if (events & ELE_WRITE && !(e->events & ELE_WRITE))
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_WRITE, EV_ADD, 0, 0, e);
+	else if (!(events & ELE_WRITE) && e->events & ELE_WRITE)
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_WRITE, EV_DELETE, 0, 0, e);
+	else
+		n--;
+#ifdef EVFILT_PROCDESC
+	if (events & ELE_HANGUP)
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_PROCDESC, EV_ADD, NOTE_EXIT,
+		    0, e);
+	else
+		n--;
+#endif
+	if (n != 0 && _kevent(eloop->fd, ke, n, NULL, 0, NULL) == -1) {
+		if (added) {
+			TAILQ_REMOVE(&eloop->events, e, next);
+			TAILQ_INSERT_TAIL(&eloop->free_events, e, next);
+		}
+		return -1;
+	}
+#elif defined(USE_EPOLL)
+	memset(&epe, 0, sizeof(epe));
+	epe.data.ptr = e;
+	if (events & ELE_READ)
+		epe.events |= EPOLLIN;
+	if (events & ELE_WRITE)
+		epe.events |= EPOLLOUT;
+	op = added ? EPOLL_CTL_ADD : EPOLL_CTL_MOD;
+	if (epe.events != 0 && epoll_ctl(eloop->fd, op, fd, &epe) == -1) {
+		if (added) {
+			TAILQ_REMOVE(&eloop->events, e, next);
+			TAILQ_INSERT_TAIL(&eloop->free_events, e, next);
+		}
+		return -1;
+	}
+#elif defined(USE_PPOLL)
 	e->pollfd = NULL;
+	UNUSED(added);
+#endif
 	e->events = events;
 	eloop->events_need_setup = true;
 	return 0;
@@ -212,6 +319,10 @@ int
 eloop_event_delete(struct eloop *eloop, int fd)
 {
 	struct eloop_event *e;
+#if defined(USE_KQUEUE)
+	struct kevent ke[2], *kep = &ke[0];
+	size_t n;
+#endif
 
 	if (fd == -1) {
 		errno = EINVAL;
@@ -226,6 +337,23 @@ eloop_event_delete(struct eloop *eloop, int fd)
 		errno = ENOENT;
 		return -1;
 	}
+
+#if defined(USE_KQUEUE)
+	n = 0;
+	if (e->events & ELE_READ) {
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_READ, EV_DELETE, 0, 0, e);
+		n++;
+	}
+	if (e->events & ELE_WRITE) {
+		EV_SET(kep++, (uintptr_t)fd, EVFILT_WRITE, EV_DELETE, 0, 0, e);
+		n++;
+	}
+	if (n != 0 && _kevent(eloop->fd, ke, n, NULL, 0, NULL) == -1)
+		return -1;
+#elif defined(USE_EPOLL)
+	if (epoll_ctl(eloop->fd, EPOLL_CTL_DEL, fd, NULL) == -1)
+		return -1;
+#endif
 
 	e->fd = -1;
 	eloop->nevents--;
@@ -268,7 +396,7 @@ eloop_timespec_diff(const struct timespec *tsp, const struct timespec *usp,
 	return secs;
 }
 
-static void
+static int
 eloop_reduce_timers(struct eloop *eloop)
 {
 	struct timespec now;
@@ -276,7 +404,8 @@ eloop_reduce_timers(struct eloop *eloop)
 	unsigned int nsecs;
 	struct eloop_timeout *t;
 
-	clock_gettime(CLOCK_MONOTONIC, &now);
+	if (clock_gettime(CLOCK_MONOTONIC, &now) == -1)
+		return -1;
 	secs = eloop_timespec_diff(&now, &eloop->now, &nsecs);
 
 	TAILQ_FOREACH(t, &eloop->timeouts, next) {
@@ -299,6 +428,7 @@ eloop_reduce_timers(struct eloop *eloop)
 	}
 
 	eloop->now = now;
+	return 0;
 }
 
 /*
@@ -321,6 +451,12 @@ eloop_q_timeout_add(struct eloop *eloop, int queue, unsigned int seconds,
 		}
 	}
 
+	if (eloop_reduce_timers(eloop) == -1) {
+		if (t != NULL)
+			free(t);
+		return -1;
+	}
+
 	if (t == NULL) {
 		/* No existing, so allocate or grab one from the free pool. */
 		if ((t = TAILQ_FIRST(&eloop->free_timeouts))) {
@@ -330,8 +466,6 @@ eloop_q_timeout_add(struct eloop *eloop, int queue, unsigned int seconds,
 				return -1;
 		}
 	}
-
-	eloop_reduce_timers(eloop);
 
 	t->seconds = seconds;
 	t->nseconds = nseconds;
@@ -419,33 +553,162 @@ eloop_exit(struct eloop *eloop, int code)
 	eloop->exitnow = true;
 }
 
-void
-eloop_endwait(struct eloop *eloop, int code)
+static int
+eloop_open(struct eloop *eloop)
 {
-	eloop->exitcode = code;
-	eloop->endwait = true;
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	int fd;
+
+#if defined(HAVE_KQUEUE1)
+	fd = kqueue1(O_CLOEXEC);
+#elif defined(USE_KQUEUE)
+	int flags;
+
+	fd = kqueue();
+	flags = fcntl(fd, F_GETFD, 0);
+	if (!(flags != -1 && !(flags & FD_CLOEXEC) &&
+		fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == 0)) {
+		close(fd);
+		return -1;
+	}
+#elif defined(USE_EPOLL)
+	fd = epoll_create1(EPOLL_CLOEXEC);
+#endif
+
+	eloop->fd = fd;
+	return fd;
+#else
+	UNUSED(eloop);
+	return 0;
+#endif
 }
 
-void
-eloop_enter(struct eloop *eloop)
+/* Must be called after fork(2) */
+int
+eloop_forked(struct eloop *eloop)
 {
-	eloop->exitnow = false;
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	struct eloop_event *e;
+#if defined(USE_KQUEUE)
+	struct kevent *pfds, *pfd;
+	size_t i;
+	int err;
+#elif defined(USE_EPOLL)
+	struct epoll_event epe = { .events = 0 };
+#endif
+
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	if (eloop->fd != -1)
+		close(eloop->fd);
+	if (eloop_open(eloop) == -1)
+		return -1;
+#endif
+
+#ifdef USE_KQUEUE
+	pfds = malloc(
+	    (eloop->nsignals + (eloop->nevents * NFD)) * sizeof(*pfds));
+	if (pfds == NULL)
+		return -1;
+	pfd = pfds;
+
+	if (eloop->signal_cb != NULL) {
+		for (i = 0; i < eloop->nsignals; i++) {
+			EV_SET(pfd++, (uintptr_t)eloop->signals[i],
+			    EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
+		}
+	} else
+		i = 0;
+#endif
+
+	TAILQ_FOREACH(e, &eloop->events, next) {
+		if (e->fd == -1)
+			continue;
+#if defined(USE_KQUEUE)
+		if (e->events & ELE_READ) {
+			EV_SET(pfd++, (uintptr_t)e->fd, EVFILT_READ, EV_ADD, 0,
+			    0, e);
+			i++;
+		}
+		if (e->events & ELE_WRITE) {
+			EV_SET(pfd++, (uintptr_t)e->fd, EVFILT_WRITE, EV_ADD, 0,
+			    0, e);
+			i++;
+		}
+#elif defined(USE_EPOLL)
+		memset(&epe, 0, sizeof(epe));
+		epe.data.ptr = e;
+		if (e->events & ELE_READ)
+			epe.events |= EPOLLIN;
+		if (e->events & ELE_WRITE)
+			epe.events |= EPOLLOUT;
+		if (epoll_ctl(eloop->fd, EPOLL_CTL_ADD, e->fd, &epe) == -1)
+			return -1;
+#endif
+	}
+
+#if defined(USE_KQUEUE)
+	if (i == 0)
+		err = 0;
+	else
+		err = _kevent(eloop->fd, pfds, i, NULL, 0, NULL);
+	free(pfds);
+	return err;
+#else
+	return 0;
+#endif
+#else
+	UNUSED(eloop);
+	return 0;
+#endif
 }
 
 int
 eloop_signal_set_cb(struct eloop *eloop, const int *signals, size_t nsignals,
     void (*signal_cb)(int, void *), void *signal_cb_ctx)
 {
+#ifdef USE_KQUEUE
+	size_t i;
+	struct kevent *ke, *kes;
+#endif
 	int error = 0;
+
+#ifdef USE_KQUEUE
+	ke = kes = malloc(MAX(eloop->nsignals, nsignals) * sizeof(*kes));
+	if (kes == NULL)
+		return -1;
+	for (i = 0; i < eloop->nsignals; i++) {
+		EV_SET(ke++, (uintptr_t)eloop->signals[i], EVFILT_SIGNAL,
+		    EV_DELETE, 0, 0, NULL);
+	}
+	if (i != 0 && _kevent(eloop->fd, kes, i, NULL, 0, NULL) == -1) {
+		error = -1;
+		goto out;
+	}
+#endif
 
 	eloop->signals = signals;
 	eloop->nsignals = nsignals;
 	eloop->signal_cb = signal_cb;
 	eloop->signal_cb_ctx = signal_cb_ctx;
 
+#ifdef USE_KQUEUE
+	if (signal_cb == NULL)
+		goto out;
+	ke = kes;
+	for (i = 0; i < eloop->nsignals; i++) {
+		EV_SET(ke++, (uintptr_t)eloop->signals[i], EVFILT_SIGNAL,
+		    EV_ADD, 0, 0, NULL);
+	}
+	if (i != 0 && _kevent(eloop->fd, kes, i, NULL, 0, NULL) == -1)
+		error = -1;
+out:
+	free(kes);
+#endif
+
 	return error;
 }
 
+#ifndef USE_KQUEUE
 static volatile int eloop_sig[ELOOP_NSIGNALS];
 static volatile size_t eloop_nsig;
 
@@ -464,16 +727,19 @@ eloop_signal3(int sig, siginfo_t *siginfo, void *arg)
 	}
 	eloop_sig[eloop_nsig++] = sig;
 }
+#endif
 
 int
 eloop_signal_mask(struct eloop *eloop)
 {
 	sigset_t newset;
 	size_t i;
+#ifndef USE_KQUEUE
 	struct sigaction sa = {
 		.sa_sigaction = eloop_signal3,
 		.sa_flags = SA_SIGINFO,
 	};
+#endif
 
 	sigemptyset(&newset);
 	for (i = 0; i < eloop->nsignals; i++)
@@ -481,12 +747,14 @@ eloop_signal_mask(struct eloop *eloop)
 	if (sigprocmask(SIG_SETMASK, &newset, &eloop->sigset) == -1)
 		return -1;
 
+#ifndef USE_KQUEUE
 	sigemptyset(&sa.sa_mask);
 
 	for (i = 0; i < eloop->nsignals; i++) {
 		if (sigaction(eloop->signals[i], &sa, NULL) == -1)
 			return -1;
 	}
+#endif
 
 	return 0;
 }
@@ -512,7 +780,35 @@ eloop_new(void)
 	TAILQ_INIT(&eloop->free_timeouts);
 	eloop->exitcode = EXIT_FAILURE;
 
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	if (eloop_open(eloop) == -1) {
+		eloop_free(eloop);
+		return NULL;
+	}
+#endif
+
 	return eloop;
+}
+
+struct eloop *
+eloop_new_with_signals(struct eloop *eloop)
+{
+	struct eloop *e;
+	int err;
+
+	e = eloop_new();
+	if (e == NULL)
+		return NULL;
+
+	err = eloop_signal_set_cb(e, eloop->signals, eloop->nsignals,
+	    eloop->signal_cb, eloop->signal_cb_ctx);
+	if (err == -1) {
+		eloop_free(e);
+		return NULL;
+	}
+	memcpy(&e->sigset, &eloop->sigset, sizeof(e->sigset));
+
+	return e;
 }
 
 void
@@ -541,8 +837,105 @@ eloop_free(struct eloop *eloop)
 	TAILQ_FOREACH_SAFE(t, &eloop->free_timeouts, next, tn)
 		free(t);
 
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
+	if (eloop != NULL && eloop->fd != -1)
+		close(eloop->fd);
+#endif
+
 	free(eloop);
 }
+
+#if defined(USE_KQUEUE)
+static int
+eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
+{
+	int n, nn;
+	struct kevent *ke;
+	struct eloop_event *e;
+	unsigned short events;
+
+	n = _kevent(eloop->fd, NULL, 0, eloop->fds, eloop->nevents, ts);
+	if (n == -1)
+		return -1;
+
+	for (nn = n, ke = eloop->fds; nn != 0; nn--, ke++) {
+		if (eloop->exitnow)
+			break;
+		e = (struct eloop_event *)ke->udata;
+		if (ke->filter == EVFILT_SIGNAL) {
+			eloop->signal_cb((int)ke->ident, eloop->signal_cb_ctx);
+			continue;
+		}
+		if (ke->filter == EVFILT_READ)
+			events = ELE_READ;
+		else if (ke->filter == EVFILT_WRITE)
+			events = ELE_WRITE;
+#ifdef EVFILT_PROCDESC
+		else if (ke->filter == EVFILT_PROCDESC &&
+		    ke->fflags & NOTE_EXIT)
+			/* exit status is in ke->data.
+			 * As we default to using ppoll anyway
+			 * we don't have to do anything with it right now. */
+			events = ELE_HANGUP;
+#endif
+		else
+			continue; /* assert? */
+		if (ke->flags & EV_EOF)
+			events |= ELE_HANGUP;
+		if (ke->flags & EV_ERROR)
+			events |= ELE_ERROR;
+		e->cb(e->cb_arg, events);
+	}
+	return n;
+}
+
+#elif defined(USE_EPOLL)
+
+static int
+eloop_run_epoll(struct eloop *eloop, const struct timespec *ts)
+{
+	int timeout, n, nn;
+	struct epoll_event *epe;
+	struct eloop_event *e;
+	unsigned short events;
+
+	if (ts != NULL) {
+		if (ts->tv_sec > INT_MAX / 1000 ||
+		    (ts->tv_sec == INT_MAX / 1000 &&
+			((ts->tv_nsec + 999999) / 1000000 > INT_MAX % 1000000)))
+			timeout = INT_MAX;
+		else
+			timeout = (int)(ts->tv_sec * 1000 +
+			    (ts->tv_nsec + 999999) / 1000000);
+	} else
+		timeout = -1;
+
+	n = epoll_pwait(eloop->fd, eloop->fds, (int)eloop->nevents, timeout,
+	    &eloop->sigset);
+	if (n == -1)
+		return -1;
+
+	for (nn = n, epe = eloop->fds; nn != 0; nn--, epe++) {
+		if (eloop->exitnow)
+			break;
+		e = (struct eloop_event *)epe->data.ptr;
+		if (e->fd == -1)
+			continue;
+		events = 0;
+		if (epe->events & EPOLLIN)
+			events |= ELE_READ;
+		if (epe->events & EPOLLOUT)
+			events |= ELE_WRITE;
+		if (epe->events & EPOLLHUP)
+			events |= ELE_HANGUP;
+		if (epe->events & EPOLLERR)
+			events |= ELE_ERROR;
+		e->cb(e->cb_arg, events);
+	}
+	return n;
+}
+
+#elif defined(USE_PPOLL)
 
 static int
 eloop_run_ppoll(struct eloop *eloop, const struct timespec *ts)
@@ -552,21 +945,12 @@ eloop_run_ppoll(struct eloop *eloop, const struct timespec *ts)
 	struct pollfd *pfd;
 	unsigned short events;
 
-	if (eloop->one_event != NULL)
-		n = ppoll(eloop->one_event->pollfd, 1, ts, &eloop->sigset);
-	else
-		n = ppoll(eloop->fds, eloop->nevents, ts, &eloop->sigset);
+	n = ppoll(eloop->fds, (nfds_t)eloop->nevents, ts, &eloop->sigset);
 	if (n == -1 || n == 0)
 		return n;
 
 	nn = n;
-	if (eloop->one_event != NULL) {
-		e = eloop->one_event;
-		goto one;
-	}
-
 	TAILQ_FOREACH(e, &eloop->events, next) {
-	one:
 		if (eloop->exitnow)
 			break;
 		/* Skip freshly added events */
@@ -588,11 +972,13 @@ eloop_run_ppoll(struct eloop *eloop, const struct timespec *ts)
 			if (events)
 				e->cb(e->cb_arg, events);
 		}
-		if (nn == 0 || eloop->one_event != NULL)
+		if (nn == 0)
 			break;
 	}
 	return n;
 }
+
+#endif
 
 int
 eloop_start(struct eloop *eloop)
@@ -601,10 +987,13 @@ eloop_start(struct eloop *eloop)
 	struct eloop_timeout *t;
 	struct timespec ts, *tsp;
 
+	eloop->exitnow = false;
+
 	for (;;) {
-		if (eloop->exitnow || eloop->endwait)
+		if (eloop->exitnow)
 			break;
 
+#ifndef USE_KQUEUE
 		if (eloop_nsig != 0) {
 			int n = eloop_sig[--eloop_nsig];
 
@@ -612,6 +1001,7 @@ eloop_start(struct eloop *eloop)
 				eloop->signal_cb(n, eloop->signal_cb_ctx);
 			continue;
 		}
+#endif
 
 		t = TAILQ_FIRST(&eloop->timeouts);
 		if (t == NULL && eloop->nevents == 0)
@@ -642,7 +1032,13 @@ eloop_start(struct eloop *eloop)
 		if (eloop->events_need_setup)
 			eloop_event_setup_fds(eloop);
 
+#if defined(USE_KQUEUE)
+		error = eloop_run_kqueue(eloop, tsp);
+#elif defined(USE_EPOLL)
+		error = eloop_run_epoll(eloop, tsp);
+#elif defined(USE_PPOLL)
 		error = eloop_run_ppoll(eloop, tsp);
+#endif
 		if (error == -1) {
 			if (errno == EINTR)
 				continue;
@@ -651,33 +1047,4 @@ eloop_start(struct eloop *eloop)
 	}
 
 	return eloop->exitcode;
-}
-
-int
-eloop_wait(struct eloop *eloop, int fd, unsigned short events,
-    void (*cb)(void *, unsigned short), void *cb_arg)
-{
-	struct pollfd pfd = { .fd = fd };
-	struct eloop_event event = { .fd = fd,
-		.events = events,
-		.cb = cb,
-		.cb_arg = cb_arg,
-		.pollfd = &pfd };
-	int err;
-
-	if (eloop->one_event != NULL) {
-		errno = EBUSY;
-		return -errno;
-	}
-
-	if (events & ELE_READ)
-		pfd.events |= POLLIN;
-	if (events & ELE_WRITE)
-		pfd.events |= POLLOUT;
-
-	eloop->one_event = &event;
-	err = eloop_start(eloop);
-	eloop->one_event = NULL;
-	eloop->endwait = false;
-	return err;
 }
