@@ -51,19 +51,11 @@ struct svc_cmd {
 	size_t sc_datalen;
 };
 
-struct svc_result {
-	struct svc_ctx *sr_ctx;
-	ssize_t sr_result;
-	int sr_errno;
-	void *sr_data;
-	size_t sr_datalen;
-};
-
 static void
 svc_recv(void *arg, unsigned short e)
 {
-	struct svc_result *sr = arg;
-	struct svc_ctx *sctx = sr->sr_ctx;
+	struct svc_ctx *sctx = arg;
+	struct svc_result *sr = &sctx->svc_result;
 	struct svc_cmd cmd;
 	struct iovec iov[] = {
 		{
@@ -78,6 +70,7 @@ svc_recv(void *arg, unsigned short e)
 	if (e & ELE_HANGUP) {
 hangup:
 		eloop_exit(sctx->svc_ctx->ctx_eloop, EXIT_SUCCESS);
+		eloop_exit(sctx->svc_eloop, EXIT_SUCCESS);
 		return;
 	}
 	if (e != ELE_READ) {
@@ -116,35 +109,25 @@ hangup:
 	nread = recvmsg(sctx->svc_fd, &msg, 0);
 	if (nread == -1) {
 		logerr("%s: recvmsg cmd", __func__);
-		return;
+		goto out;
 	}
 	if ((size_t)nread != sizeof(cmd) + cmd.sc_datalen) {
 		logerrx("%s: read datalen mismatch: %zd != %zd", __func__,
 		    nread, sizeof(cmd) + cmd.sc_datalen);
-		return;
+		goto out;
 	}
-	if (cmd.sc_datalen != 0) {
-		sr->sr_datalen = cmd.sc_datalen;
-		sr->sr_data = sctx->svc_buf;
-	}
+
+	sr->sr_datalen = cmd.sc_datalen;
+	sr->sr_data = sr->sr_datalen != 0 ? sctx->svc_buf : NULL;
 
 	/* We are either a dispatcher for the helper, or a blocking loop for a
 	 * response */
 	if (sctx->svc_dispatch != NULL)
 		sctx->svc_dispatch(sctx, (struct plugin *)cmd.sc_plugin,
 		    cmd.sc_cmd, sctx->svc_buf, cmd.sc_datalen);
-	else
-		eloop_endwait(sctx->svc_ctx->ctx_eloop, EXIT_SUCCESS);
-}
-
-static void
-svc_readctx(void *arg, unsigned short e)
-{
-	struct svc_result sr = {
-		.sr_ctx = arg,
-	};
-
-	return svc_recv(&sr, e);
+out:
+	if (sctx->svc_eloop != NULL)
+		eloop_exit(sctx->svc_eloop, EXIT_SUCCESS);
 }
 
 ssize_t
@@ -170,7 +153,7 @@ svc_sendv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 	};
 	int i;
 
-	if ((size_t)(iovlen + msg.msg_iovlen) > ARRAYCOUNT(_iov)) {
+	if ((size_t)iovlen + (size_t)msg.msg_iovlen > ARRAYCOUNT(_iov)) {
 		errno = ENOBUFS;
 		return -1;
 	}
@@ -200,9 +183,7 @@ int
 svc_runv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
     struct iovec *iov, int iovlen, ssize_t *res, void **rdata, size_t *rlen)
 {
-	struct svc_result result = {
-		.sr_ctx = sctx,
-	};
+	struct svc_result *result = &sctx->svc_result;
 	int err;
 
 	if (svc_sendv(sctx, p, cmd, 0, iov, iovlen) == -1) {
@@ -210,20 +191,19 @@ svc_runv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 		return -1;
 	}
 
-	err = eloop_wait(sctx->svc_ctx->ctx_eloop, sctx->svc_fd, ELE_READ,
-	    svc_recv, &result);
+	err = eloop_start(sctx->svc_eloop);
 	if (err == -1)
 		return -1;
 
-	if (result.sr_result == -1)
-		errno = result.sr_errno;
+	if (result->sr_result == -1)
+		errno = result->sr_errno;
 	if (res != NULL)
-		*res = result.sr_result;
+		*res = result->sr_result;
 	if (rdata != NULL)
-		*rdata = result.sr_data;
+		*rdata = result->sr_data;
 	if (rlen != NULL)
-		*rlen = result.sr_datalen;
-	return 0;
+		*rlen = result->sr_datalen;
+	return err;
 }
 
 int
@@ -256,6 +236,7 @@ svc_init(struct ctx *ctx, const char *name,
 	sctx->svc_ctx = ctx;
 	sctx->svc_fd = -1;
 	sctx->svc_dispatch = NULL;
+	sctx->svc_eloop = NULL;
 
 	sctx->svc_buflen = 1024;
 	sctx->svc_buf = malloc(sctx->svc_buflen);
@@ -284,15 +265,30 @@ svc_init(struct ctx *ctx, const char *name,
 	default:
 		sctx->svc_fd = fdset[0];
 		close(fdset[1]);
+		sctx->svc_eloop = eloop_new_with_signals(ctx->ctx_eloop);
+		if (sctx->svc_eloop == NULL) {
+			logerr("%s: eloop_new_with_signals", __func__);
+			goto error;
+		}
+		if (eloop_event_add(sctx->svc_eloop, sctx->svc_fd, ELE_READ,
+			svc_recv, sctx) == -1) {
+			logerr("%s: eloop_event_add", __func__);
+			goto error;
+		}
 		logdebugx("service: spawned %s on pid %ld", name, (long)pid);
 		return sctx;
+	}
+
+	if (eloop_forked(ctx->ctx_eloop) == -1) {
+		logerr("%s: eloop_forked", __func__);
+		goto error;
 	}
 
 	ctx->ctx_options &= ~DHCPSD_MAIN;
 	ctx->ctx_options |= DHCPSD_UNPRIV | DHCPSD_RUN;
 	sctx->svc_dispatch = dispatch;
 
-	if (eloop_event_add(ctx->ctx_eloop, sctx->svc_fd, ELE_READ, svc_readctx,
+	if (eloop_event_add(ctx->ctx_eloop, sctx->svc_fd, ELE_READ, svc_recv,
 		sctx) == -1) {
 		logerr("%s: eloop_event_add", __func__);
 		goto error;
@@ -337,5 +333,6 @@ svc_free(struct svc_ctx *ctx)
 	if (ctx->svc_fd != -1)
 		close(ctx->svc_fd);
 	free(ctx->svc_buf);
+	eloop_free(ctx->svc_eloop);
 	free(ctx);
 }

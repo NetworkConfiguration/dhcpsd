@@ -36,11 +36,20 @@
 
 struct plugin;
 
+struct svc_result {
+	ssize_t sr_result;
+	int sr_errno;
+	void *sr_data;
+	size_t sr_datalen;
+};
+
 struct svc_ctx {
 	struct ctx *svc_ctx;
+	struct eloop *svc_eloop;
 	int svc_fd;
 	void *svc_buf;
 	size_t svc_buflen;
+	struct svc_result svc_result;
 	ssize_t (*svc_dispatch)(struct svc_ctx *, struct plugin *, unsigned int,
 	    const void *, size_t);
 };

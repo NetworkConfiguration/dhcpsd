@@ -37,6 +37,7 @@
 #include <grp.h>
 #include <ifaddrs.h>
 #include <pwd.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -349,6 +350,10 @@ main(int argc, char **argv)
 	if (logopts & LOGERR_LOG) {
 		if (daemon(0, 0) == -1) {
 			logerr("%s: daemon", __func__);
+			goto exit;
+		}
+		if (eloop_forked(ctx.ctx_eloop) == -1) {
+			logerr("%s: eloop_forked", __func__);
 			goto exit;
 		}
 	}
