@@ -702,12 +702,12 @@ cat <<EOF >>.clangd
 If:
   PathMatch: src/plugins/.*\.c
 CompileFlags:
-  Add: [-I.., -I../..]
+  Add: [-I.., -I../.., -I../../vendor]
 ---
 If:
   PathMatch: src/.*\.c
 CompileFlags:
-  Add: -I..
+  Add: [-I.., -I../vendor]
 EOF
 
 echo
