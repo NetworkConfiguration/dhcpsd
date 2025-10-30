@@ -588,7 +588,6 @@ eloop_open(struct eloop *eloop)
 static void
 eloop_clear(struct eloop *eloop, unsigned short flags)
 {
-
 	if (eloop == NULL)
 		return;
 
@@ -861,7 +860,6 @@ eloop_new_with_signals(struct eloop *eloop)
 void
 eloop_free(struct eloop *eloop)
 {
-
 	if (eloop == NULL)
 		return;
 

@@ -60,13 +60,11 @@ struct eloop;
 #define ELE_NVAL   0x0400
 
 /* What to keep when forking */
-#define	ELF_KEEP_SIGNALS	0x0001
-#define	ELF_KEEP_EVENTS		0x0002
-#define	ELF_KEEP_TIMEOUTS	0x0004
+#define ELF_KEEP_SIGNALS  0x0001
+#define ELF_KEEP_EVENTS	  0x0002
+#define ELF_KEEP_TIMEOUTS 0x0004
 
-#define ELF_KEEP_ALL		(ELF_KEEP_SIGNALS | \
-				 ELF_KEEP_EVENTS | \
-				 ELF_KEEP_TIMEOUTS)
+#define ELF_KEEP_ALL	  (ELF_KEEP_SIGNALS | ELF_KEEP_EVENTS | ELF_KEEP_TIMEOUTS)
 
 size_t eloop_event_count(const struct eloop *);
 int eloop_event_add(struct eloop *, int, unsigned short,
