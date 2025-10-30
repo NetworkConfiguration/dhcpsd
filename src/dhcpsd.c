@@ -158,6 +158,135 @@ dhcpsd_mkdbdir(void)
 	return 0;
 }
 
+static void
+dhcpsd_fork_cb(void *arg, unsigned short e)
+{
+	struct ctx *ctx = arg;
+	int exit_code;
+	ssize_t nread;
+
+	if (e & ELE_HANGUP) {
+	hangup:
+		close(ctx->ctx_fork_fd);
+		ctx->ctx_fork_fd = -1;
+		eloop_exit(ctx->ctx_eloop, EXIT_FAILURE);
+		return;
+	}
+	nread = recv(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), 0);
+	if (nread == 0)
+		goto hangup;
+	if (nread == -1) {
+		logerr("%s: recv %d", __func__, ctx->ctx_fork_fd);
+		goto hangup;
+	}
+	if ((size_t)nread != sizeof(exit_code)) {
+		logerrx("%s: truncated %zd", __func__, nread);
+		goto hangup;
+	}
+	eloop_exit(ctx->ctx_eloop, exit_code);
+}
+
+/* Complicated, but it ensures we don't get a controlling terminal
+ * and the ppid of any child processed match the main process. */
+static int
+dhcpsd_fork(struct ctx *ctx)
+{
+	int fork_fd[2];
+	pid_t pid;
+#ifdef HAVE_CASPER
+	cap_rights_t rights;
+#endif
+
+	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK,
+		0, fork_fd) == -1) {
+		logerr("socketpair");
+		return -1;
+	}
+
+	switch (pid = fork()) {
+	case -1:
+		logerr("%s: fork", __func__);
+		return -1;
+		;
+	case 0:
+		ctx->ctx_fork_fd = fork_fd[1];
+		close(fork_fd[0]);
+#ifdef HAVE_CASPER
+		cap_rights_init(&rights, CAP_WRITE);
+		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
+			logerr("%s: caph_rights_limit", __func__);
+			return -1;
+		}
+#endif
+		if (setsid() == -1) {
+			logerr("%s: setsid", __func__);
+			return -1;
+		}
+		/* Ensure we can never get a controlling terminal */
+		switch (pid = fork()) {
+		case -1:
+			logerr("%s: fork", __func__);
+			return -1;
+		case 0:
+			/* setsid again to ensure our child processes have the
+			 * correct ppid */
+			if (setsid() == -1) {
+				logerr("%s: setsid", __func__);
+				return -1;
+			}
+			if (eloop_forked(ctx->ctx_eloop, ELF_KEEP_ALL) == -1) {
+				logerr("%s: eloop_forked", __func__);
+				return -1;
+			}
+			if (eloop_event_add(ctx->ctx_eloop, ctx->ctx_fork_fd,
+				ELE_READ, dhcpsd_fork_cb, ctx) == -1) {
+				logerr("%s: eloop_event_add", __func__);
+				return -1;
+			}
+			break;
+		default:
+			ctx->ctx_options &= ~DHCPSD_MAIN;
+			break;
+		}
+		break;
+	default:
+#ifdef BSD
+		setproctitle("[launcher]");
+#endif
+		ctx->ctx_options &= ~DHCPSD_MAIN;
+		ctx->ctx_options |= DHCPSD_LAUNCHER;
+		ctx->ctx_fork_fd = fork_fd[0];
+		close(fork_fd[1]);
+
+#ifdef HAVE_CASPER
+		cap_rights_init(&rights, CAP_READ);
+		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
+			logerr("%s: caph_rights_limit", __func__);
+			return -1;
+		}
+#endif
+		if (eloop_event_add(ctx->ctx_eloop, ctx->ctx_fork_fd, ELE_READ,
+			dhcpsd_fork_cb, ctx) == -1) {
+			logerr("%s: eloop_event_add", __func__);
+			return -1;
+		}
+		break;
+	}
+	return 0;
+}
+
+static void
+dhcpsd_send_launcher(struct ctx *ctx, int exit_code)
+{
+	if (ctx->ctx_fork_fd == -1)
+		return;
+	if (send(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), MSG_EOR) ==
+	    -1)
+		logerr("%s: sendmsg", __func__);
+	close(ctx->ctx_fork_fd);
+	ctx->ctx_fork_fd = -1;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -165,12 +294,13 @@ main(int argc, char **argv)
 	struct ctx ctx = {
 		.ctx_options = DHCPSD_MAIN,
 		.ctx_ifaces = &ifaces,
+		.ctx_fork_fd = -1,
 		.ctx_pf_inet_fd = -1,
 #ifdef IFLR_ACTIVE
 		.ctx_pf_link_fd = -1,
 #endif
 	};
-	int ch, exit_code = EXIT_FAILURE;
+	int ch, exit_code = EXIT_FAILURE, f_flag = 0;
 	size_t npools;
 	struct interface *ifp;
 	unsigned int logopts = LOGERR_LOG;
@@ -184,6 +314,7 @@ main(int argc, char **argv)
 	TAILQ_INIT(ctx.ctx_ifaces);
 	closefrom(STDERR_FILENO + 1);
 
+	logopts |= LOGERR_ERR; // log to stderr
 #define OPTS "dfp:"
 	while ((ch = getopt(argc, argv, OPTS)) != -1) {
 		switch (ch) {
@@ -191,6 +322,7 @@ main(int argc, char **argv)
 			logopts |= LOGERR_DEBUG;
 			break;
 		case 'f':
+			f_flag = 1;
 			logopts |= LOGERR_ERR;	// log to stderr
 			logopts &= ~LOGERR_LOG; // don't syslog
 			break;
@@ -200,17 +332,28 @@ main(int argc, char **argv)
 	logsetopts(logopts);
 	logopen(NULL);
 
-	loginfox(PACKAGE "-" VERSION " starting");
-	if (dhcpsd_mkdbdir() == -1)
-		goto exit;
-
 	ctx.ctx_eloop = eloop_new();
 	if (ctx.ctx_eloop == NULL) {
 		logerr("%s: eloop_new", __func__);
 		goto exit;
 	}
-	eloop_signal_set_cb(ctx.ctx_eloop, signals, signals_len,
-	    dhcpsd_signal_cb, &ctx);
+	if (eloop_signal_set_cb(ctx.ctx_eloop, signals, signals_len,
+		dhcpsd_signal_cb, &ctx) == -1) {
+		logerr("%s: eloop_signal_set_cb", __func__);
+		goto exit;
+	}
+
+	if (!(f_flag) && dhcpsd_fork(&ctx) == -1)
+		goto exit;
+	if (ctx.ctx_options & DHCPSD_LAUNCHER)
+		goto run;
+	if (!(ctx.ctx_options & DHCPSD_MAIN))
+		goto exit;
+
+	loginfox(PACKAGE "-" VERSION " starting");
+	if (dhcpsd_mkdbdir() == -1)
+		goto exit;
+
 	if (eloop_signal_mask(ctx.ctx_eloop) == -1) {
 		logerr("%s: eloop_signal_mask", __func__);
 		goto exit;
@@ -346,17 +489,6 @@ main(int argc, char **argv)
 	if (dhcpsd_dropperms(1) == -1)
 		goto exit;
 
-	/* If we separate -f from no syslog we need a new variable */
-	if (logopts & LOGERR_LOG) {
-		if (daemon(0, 0) == -1) {
-			logerr("%s: daemon", __func__);
-			goto exit;
-		}
-		if (eloop_forked(ctx.ctx_eloop, ELF_KEEP_ALL) == -1) {
-			logerr("%s: eloop_forked", __func__);
-			goto exit;
-		}
-	}
 #ifdef BSD
 	setproctitle("DHCP Server Daemon");
 #endif
@@ -446,6 +578,11 @@ main(int argc, char **argv)
 #endif
 
 	loginfox(PACKAGE " is now running");
+	if (ctx.ctx_fork_fd != -1) {
+		dhcpsd_send_launcher(&ctx, EXIT_SUCCESS);
+		logopts &= ~LOGERR_ERR; // stop logging to stderr
+		logsetopts(logopts);
+	}
 	dhcp_expire_leases(ctx.ctx_dhcp);
 
 run:
@@ -453,8 +590,7 @@ run:
 	if (exit_code < 0) {
 		logerr("%s: eloop_start", __func__);
 		exit_code = EXIT_FAILURE;
-	} else
-		exit_code = EXIT_SUCCESS;
+	}
 
 	if (dhcpsd_store_leases(&ctx) == -1)
 		exit_code = EXIT_FAILURE;
@@ -469,12 +605,16 @@ exit:
 	}
 	dhcp_free(ctx.ctx_dhcp);
 	eloop_free(ctx.ctx_eloop);
+	ctx.ctx_eloop = NULL;
 	svc_free(ctx.ctx_unpriv);
 #ifdef HAVE_CASPER
 	if (ctx.ctx_capnet)
 		cap_close(ctx.ctx_capnet);
 #endif
-	if (ctx.ctx_options & DHCPSD_MAIN)
+	if (ctx.ctx_options & DHCPSD_MAIN) {
 		logdebugx("dhcpsd exited");
+		dhcpsd_send_launcher(&ctx, exit_code);
+	}
+
 	return exit_code;
 }

@@ -52,10 +52,12 @@ struct ctx {
 	size_t ctx_nplugins;
 
 	unsigned int ctx_options;
-#define DHCPSD_RUN    (1U << 0) /* Set by forked stuff */
-#define DHCPSD_MAIN   (1U << 1) /* Main process */
-#define DHCPSD_UNPRIV (1U << 2) /* Unprivileged helper */
+#define DHCPSD_RUN	(1U << 0) /* Set by forked stuff */
+#define DHCPSD_MAIN	(1U << 1) /* Main process */
+#define DHCPSD_UNPRIV	(1U << 2) /* Unprivileged helper */
+#define DHCPSD_LAUNCHER (1U << 3) /* Launcher process */
 
+	int ctx_fork_fd;
 	int ctx_pf_inet_fd;
 #ifdef IFLR_ACTIVE
 	int ctx_pf_link_fd;

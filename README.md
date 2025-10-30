@@ -285,7 +285,7 @@ end
 function commit_lease(hostname, htype, chaddr, clientid, ip, flags, leased, expires)
 	-- NOTE: dhcpsd MUST be supplied the debug flag to keep stdout open
 	local rflags = ""
-	local type = "UNKNOWN"
+	local type = "STORED"
 	if string.find(flags, "D") ~= nil or string.find(flags, "d") ~= nil then
 		type = "DECLINED"
 	elseif string.find(flags, "O") ~= nil then
