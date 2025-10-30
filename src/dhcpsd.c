@@ -352,7 +352,7 @@ main(int argc, char **argv)
 			logerr("%s: daemon", __func__);
 			goto exit;
 		}
-		if (eloop_forked(ctx.ctx_eloop) == -1) {
+		if (eloop_forked(ctx.ctx_eloop, ELF_KEEP_ALL) == -1) {
 			logerr("%s: eloop_forked", __func__);
 			goto exit;
 		}

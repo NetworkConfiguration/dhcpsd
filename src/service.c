@@ -279,14 +279,14 @@ svc_init(struct ctx *ctx, const char *name,
 		return sctx;
 	}
 
-	if (eloop_forked(ctx->ctx_eloop) == -1) {
-		logerr("%s: eloop_forked", __func__);
-		goto error;
-	}
-
 	ctx->ctx_options &= ~DHCPSD_MAIN;
 	ctx->ctx_options |= DHCPSD_UNPRIV | DHCPSD_RUN;
 	sctx->svc_dispatch = dispatch;
+
+	if (eloop_forked(ctx->ctx_eloop, ELF_KEEP_SIGNALS) == -1) {
+		logerr("%s: eloop_forked", __func__);
+		goto error;
+	}
 
 	if (eloop_event_add(ctx->ctx_eloop, sctx->svc_fd, ELE_READ, svc_recv,
 		sctx) == -1) {
