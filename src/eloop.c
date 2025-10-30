@@ -26,7 +26,9 @@
  * SUCH DAMAGE.
  */
 
+#if (defined(__unix__) || defined(unix)) && !defined(USG)
 #include <sys/param.h>
+#endif
 #include <sys/time.h>
 
 /*
