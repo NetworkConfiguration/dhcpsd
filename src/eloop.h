@@ -52,11 +52,21 @@
 /* Forward declare eloop - the content should be invisible to the outside */
 struct eloop;
 
+/* eloop fd events */
 #define ELE_READ   0x0001
 #define ELE_WRITE  0x0002
 #define ELE_ERROR  0x0100
 #define ELE_HANGUP 0x0200
 #define ELE_NVAL   0x0400
+
+/* What to keep when forking */
+#define	ELF_KEEP_SIGNALS	0x0001
+#define	ELF_KEEP_EVENTS		0x0002
+#define	ELF_KEEP_TIMEOUTS	0x0004
+
+#define ELF_KEEP_ALL		(ELF_KEEP_SIGNALS | \
+				 ELF_KEEP_EVENTS | \
+				 ELF_KEEP_TIMEOUTS)
 
 size_t eloop_event_count(const struct eloop *);
 int eloop_event_add(struct eloop *, int, unsigned short,
@@ -89,7 +99,7 @@ struct eloop *eloop_new(void);
 struct eloop *eloop_new_with_signals(struct eloop *);
 void eloop_free(struct eloop *);
 void eloop_exit(struct eloop *, int);
-int eloop_forked(struct eloop *);
+int eloop_forked(struct eloop *, unsigned short);
 int eloop_start(struct eloop *);
 
 #endif

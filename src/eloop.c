@@ -26,10 +26,14 @@
  * SUCH DAMAGE.
  */
 
-/* This eloop implementation just uses ppoll as we only support modern stuff. */
 #include <sys/param.h>
 #include <sys/time.h>
 
+/*
+ * On BSD use kqueue(2)
+ * On Linux use epoll(7)
+ * Everywhere else use ppoll(2)
+ */
 #ifdef BSD
 #include <sys/event.h>
 #define USE_KQUEUE
@@ -143,6 +147,7 @@ struct eloop {
 	int exitcode;
 	bool exitnow;
 	bool events_need_setup;
+	bool events_invalid;
 };
 
 #ifdef HAVE_REALLOCARRAY
@@ -553,10 +558,10 @@ eloop_exit(struct eloop *eloop, int code)
 	eloop->exitnow = true;
 }
 
+#if defined(USE_KQUEUE) || defined(USE_EPOLL)
 static int
 eloop_open(struct eloop *eloop)
 {
-#if defined(USE_KQUEUE) || defined(USE_EPOLL)
 	int fd;
 
 #if defined(HAVE_KQUEUE1)
@@ -577,15 +582,54 @@ eloop_open(struct eloop *eloop)
 
 	eloop->fd = fd;
 	return fd;
-#else
-	UNUSED(eloop);
-	return 0;
+}
 #endif
+
+static void
+eloop_clear(struct eloop *eloop, unsigned short flags)
+{
+
+	if (eloop == NULL)
+		return;
+
+	if (!(flags & ELF_KEEP_SIGNALS)) {
+		eloop->signals = NULL;
+		eloop->nsignals = 0;
+		eloop->signal_cb = NULL;
+		eloop->signal_cb_ctx = NULL;
+	}
+
+	if (!(flags & ELF_KEEP_EVENTS)) {
+		struct eloop_event *e, *en;
+
+		TAILQ_FOREACH_SAFE(e, &eloop->events, next, en)
+			free(e);
+		TAILQ_INIT(&eloop->events);
+
+		TAILQ_FOREACH_SAFE(e, &eloop->free_events, next, en)
+			free(e);
+		TAILQ_INIT(&eloop->free_events);
+
+		eloop->nevents = 0;
+		eloop->events_invalid = true;
+	}
+
+	if (!(flags & ELF_KEEP_TIMEOUTS)) {
+		struct eloop_timeout *t, *tn;
+
+		TAILQ_FOREACH_SAFE(t, &eloop->timeouts, next, tn)
+			free(t);
+		TAILQ_INIT(&eloop->timeouts);
+
+		TAILQ_FOREACH_SAFE(t, &eloop->free_timeouts, next, tn)
+			free(t);
+		TAILQ_INIT(&eloop->free_timeouts);
+	}
 }
 
 /* Must be called after fork(2) */
 int
-eloop_forked(struct eloop *eloop)
+eloop_forked(struct eloop *eloop, unsigned short flags)
 {
 #if defined(USE_KQUEUE) || defined(USE_EPOLL)
 	struct eloop_event *e;
@@ -598,11 +642,14 @@ eloop_forked(struct eloop *eloop)
 #endif
 
 #if defined(USE_KQUEUE) || defined(USE_EPOLL)
-	if (eloop->fd != -1)
-		close(eloop->fd);
-	if (eloop_open(eloop) == -1)
+	/* The fd is invalid after a fork, no need to close it. */
+	eloop->fd = -1;
+	if (flags && eloop_open(eloop) == -1)
 		return -1;
 #endif
+	eloop_clear(eloop, flags);
+	if (!flags)
+		return 0;
 
 #ifdef USE_KQUEUE
 	pfds = malloc(
@@ -657,7 +704,7 @@ eloop_forked(struct eloop *eloop)
 	return 0;
 #endif
 #else
-	UNUSED(eloop);
+	eloop_clear(eloop, flags);
 	return 0;
 #endif
 }
@@ -814,34 +861,15 @@ eloop_new_with_signals(struct eloop *eloop)
 void
 eloop_free(struct eloop *eloop)
 {
-	struct eloop_event *e, *en;
-	struct eloop_timeout *t, *tn;
 
 	if (eloop == NULL)
 		return;
 
-	TAILQ_FOREACH_SAFE(e, &eloop->events, next, en) {
-		if (e->fd != -1)
-			close(e->fd);
-		free(e);
-	}
-
-	free(eloop->fds);
-
-	TAILQ_FOREACH_SAFE(e, &eloop->free_events, next, en)
-		free(e);
-
-	TAILQ_FOREACH_SAFE(t, &eloop->timeouts, next, tn)
-		free(t);
-
-	TAILQ_FOREACH_SAFE(t, &eloop->free_timeouts, next, tn)
-		free(t);
-
+	eloop_clear(eloop, 0);
 #if defined(USE_KQUEUE) || defined(USE_EPOLL)
-	if (eloop != NULL && eloop->fd != -1)
+	if (eloop->fd != -1)
 		close(eloop->fd);
 #endif
-
 	free(eloop);
 }
 
@@ -859,7 +887,7 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 		return -1;
 
 	for (nn = n, ke = eloop->fds; nn != 0; nn--, ke++) {
-		if (eloop->exitnow)
+		if (eloop->exitnow || eloop->events_invalid)
 			break;
 		e = (struct eloop_event *)ke->udata;
 		if (ke->filter == EVFILT_SIGNAL) {
@@ -873,9 +901,8 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 #ifdef EVFILT_PROCDESC
 		else if (ke->filter == EVFILT_PROCDESC &&
 		    ke->fflags & NOTE_EXIT)
-			/* exit status is in ke->data.
-			 * As we default to using ppoll anyway
-			 * we don't have to do anything with it right now. */
+			/* exit status is in ke->data
+			 * should we do anything with it? */
 			events = ELE_HANGUP;
 #endif
 		else
@@ -916,7 +943,7 @@ eloop_run_epoll(struct eloop *eloop, const struct timespec *ts)
 		return -1;
 
 	for (nn = n, epe = eloop->fds; nn != 0; nn--, epe++) {
-		if (eloop->exitnow)
+		if (eloop->exitnow || eloop->events_invalid)
 			break;
 		e = (struct eloop_event *)epe->data.ptr;
 		if (e->fd == -1)
@@ -951,7 +978,7 @@ eloop_run_ppoll(struct eloop *eloop, const struct timespec *ts)
 
 	nn = n;
 	TAILQ_FOREACH(e, &eloop->events, next) {
-		if (eloop->exitnow)
+		if (eloop->exitnow || eloop->events_invalid)
 			break;
 		/* Skip freshly added events */
 		if ((pfd = e->pollfd) == NULL)
@@ -992,6 +1019,10 @@ eloop_start(struct eloop *eloop)
 	for (;;) {
 		if (eloop->exitnow)
 			break;
+		if (eloop->events_invalid) {
+			eloop->events_invalid = false;
+			eloop->events_need_setup = true;
+		}
 
 #ifndef USE_KQUEUE
 		if (eloop_nsig != 0) {
