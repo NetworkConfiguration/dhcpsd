@@ -382,7 +382,7 @@ bpf_icmp(const struct bpf *bpf)
 
 struct bpf *
 bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
-    unsigned int flags)
+    int flags)
 {
 	struct bpf *bpf;
 #ifdef __linux__
@@ -442,13 +442,13 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 #else /* !__linux__ */
 
 #ifdef O_CLOEXEC
-#define BPF_OPEN_FLAGS O_RDWR | O_NONBLOCK | O_CLOEXEC
+#define BPF_OPEN_FLAGS O_NONBLOCK | O_CLOEXEC
 #else
-#define BPF_OPEN_FLAGS O_RDWR | O_NONBLOCK
+#define BPF_OPEN_FLAGS O_NONBLOCK
 #endif
 
 	/* /dev/bpf is a cloner on modern kernels */
-	bpf->bpf_fd = open("/dev/bpf", BPF_OPEN_FLAGS);
+	bpf->bpf_fd = open("/dev/bpf", flags | BPF_OPEN_FLAGS);
 
 	/* Support older kernels where /dev/bpf is not a cloner */
 	if (bpf->bpf_fd == -1) {
@@ -459,7 +459,7 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 			r = snprintf(device, sizeof(device), "/dev/bpf%d", n++);
 			if (r == -1)
 				break;
-			bpf->bpf_fd = open(device, BPF_OPEN_FLAGS);
+			bpf->bpf_fd = open(device, flags | BPF_OPEN_FLAGS);
 		} while (bpf->bpf_fd == -1 && errno == EBUSY);
 	}
 
@@ -503,10 +503,10 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 		goto eexit;
 
 /* As we are only writing to BPF, we don't need a buffer */
-#if 0
 #ifdef __linux__
 	UNUSED(flags);
 #else
+#if 0
 	if (flags & (O_RDONLY | O_RDWR)) {
 		/* Get the required BPF buffer length from the kernel. */
 		if (ioctl(bpf->bpf_fd, BIOCGBLEN, &ibuf_len) == -1)
@@ -518,8 +518,6 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 			goto eexit;
 	}
 #endif
-#else
-	UNUSED(flags);
 #endif
 
 	return bpf;

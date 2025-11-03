@@ -44,7 +44,7 @@ struct bpf {
 
 struct interface;
 struct bpf *bpf_open(const struct interface *,
-    int (*filter)(const struct bpf *), unsigned int);
+    int (*filter)(const struct bpf *), int);
 ssize_t bpf_read(struct bpf *, void *, size_t);
 void bpf_close(struct bpf *);
 
