@@ -87,9 +87,8 @@ dhcpsd_store_leases(struct ctx *ctx)
 }
 
 static void
-dhcpsd_signal_cb(int sig, void *arg)
+dhcpsd_signal_cb(int sig, __unused void *arg)
 {
-	struct ctx *ctx = arg;
 	int exit_code = EXIT_FAILURE;
 
 #define SIGMSG "received %s, %s"
