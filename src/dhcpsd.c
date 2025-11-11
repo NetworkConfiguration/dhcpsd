@@ -106,7 +106,7 @@ dhcpsd_signal_cb(int sig, void *arg)
 		return;
 	}
 
-	eloop_exit(ctx->ctx_eloop, exit_code);
+	eloop_exitall(exit_code);
 }
 
 int
