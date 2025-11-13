@@ -265,9 +265,9 @@ svc_init(struct ctx *ctx, const char *name,
 	default:
 		sctx->svc_fd = fdset[0];
 		close(fdset[1]);
-		sctx->svc_eloop = eloop_new_with_signals(ctx->ctx_eloop);
+		sctx->svc_eloop = eloop_new();
 		if (sctx->svc_eloop == NULL) {
-			logerr("%s: eloop_new_with_signals", __func__);
+			logerr("%s: eloop_new", __func__);
 			goto error;
 		}
 		if (eloop_event_add(sctx->svc_eloop, sctx->svc_fd, ELE_READ,
