@@ -244,20 +244,23 @@ eloop_event_count(const struct eloop *eloop)
 static int
 eloop_signal_kqueue(struct eloop *eloop, const int *signals, size_t nsignals)
 {
-	size_t n = nsignals == 0 ? eloop->nsignals : nsignals;
-	struct kevent ke[n], *kep = ke;
-	size_t i;
+	unsigned int cmd = nsignals == 0 ? EV_DELETE : EV_ADD;
 
-	if (eloop->signal_cb == NULL || n == 0)
+	if (nsignals == 0) {
+		signals = eloop->signals;
+		nsignals = eloop->nsignals;
+	}
+	if (nsignals == 0)
 		return 0;
 
-	if (signals == NULL)
-		signals = eloop->signals;
-	for (i = 0; i < n; i++)
-		EV_SET(kep++, (uintptr_t)signals[i], EVFILT_SIGNAL,
-		    nsignals == 0 ? EV_DELETE : EV_ADD, 0, 0, NULL);
+	struct kevent ke[nsignals], *kep = ke;
+	size_t i;
 
-	return kevent(eloop->fd, ke, (KEVENT_N)n, NULL, 0, NULL);
+	for (i = 0; i < nsignals; i++)
+		EV_SET(kep++, (uintptr_t)signals[i], EVFILT_SIGNAL, cmd, 0, 0,
+		    NULL);
+
+	return kevent(eloop->fd, ke, (KEVENT_N)nsignals, NULL, 0, NULL);
 }
 
 static int
@@ -615,30 +618,6 @@ eloop_exit(struct eloop *eloop, int code)
 	eloop->exitnow = true;
 }
 
-void
-eloop_exitall(int code)
-{
-	struct eloop *eloop;
-
-	TAILQ_FOREACH(eloop, &eloops, next) {
-		eloop->exitcode = code;
-		eloop->exitnow = true;
-	}
-}
-
-void
-eloop_exitallinners(int code)
-{
-	struct eloop *eloop;
-
-	TAILQ_FOREACH(eloop, &eloops, next) {
-		if (eloop == TAILQ_FIRST(&eloops))
-			continue;
-		eloop->exitcode = code;
-		eloop->exitnow = true;
-	}
-}
-
 #if defined(USE_KQUEUE) || defined(USE_EPOLL)
 static int
 eloop_open(struct eloop *eloop)
@@ -857,27 +836,6 @@ eloop_new(void)
 	return eloop;
 }
 
-struct eloop *
-eloop_new_with_signals(struct eloop *eloop)
-{
-	struct eloop *e;
-	int err;
-
-	e = eloop_new();
-	if (e == NULL)
-		return NULL;
-
-	err = eloop_signal_set_cb(e, eloop->signals, eloop->nsignals,
-	    eloop->signal_cb, eloop->signal_cb_ctx);
-	if (err == -1) {
-		eloop_free(e);
-		return NULL;
-	}
-	memcpy(&e->sigset, &eloop->sigset, sizeof(e->sigset));
-
-	return e;
-}
-
 void
 eloop_free(struct eloop *eloop)
 {
@@ -895,6 +853,11 @@ eloop_free(struct eloop *eloop)
 }
 
 #if defined(USE_KQUEUE)
+
+static int eloop_kqueue_signals[] = { SIGINT, SIGTERM };
+#define eloop_kqueue_nsignals \
+	sizeof(eloop_kqueue_signals) / sizeof(eloop_kqueue_signals[0])
+
 static int
 eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 {
@@ -902,6 +865,16 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 	struct kevent *ke;
 	struct eloop_event *e;
 	unsigned short events;
+
+	/* Inner loops generally don't have signals attached
+	 * but we do need to exit the loop to when interrupted
+	 * with SIGTERM or SIGINT. */
+	if (eloop->nsignals == 0 && TAILQ_FIRST(&eloops)->nsignals) {
+		eloop_signal_kqueue(eloop, eloop_kqueue_signals,
+		    eloop_kqueue_nsignals);
+		eloop->signals = eloop_kqueue_signals;
+		eloop->nsignals = eloop_kqueue_nsignals;
+	}
 
 	n = kevent(eloop->fd, NULL, 0, eloop->fds, (KEVENT_N)eloop->nfds, ts);
 	if (n == -1)
@@ -912,6 +885,12 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 			break;
 		e = (struct eloop_event *)ke->udata;
 		if (ke->filter == EVFILT_SIGNAL) {
+			if (eloop->signal_cb == NULL) {
+				eloop_exit(eloop,
+				    ke->ident == SIGTERM ? EXIT_SUCCESS :
+							   EXIT_FAILURE);
+				return nn;
+			}
 			eloop->signal_cb((int)ke->ident, eloop->signal_cb_ctx);
 			continue;
 		}

@@ -87,8 +87,9 @@ dhcpsd_store_leases(struct ctx *ctx)
 }
 
 static void
-dhcpsd_signal_cb(int sig, __unused void *arg)
+dhcpsd_signal_cb(int sig, void *arg)
 {
+	struct ctx *ctx = arg;
 	int exit_code = EXIT_FAILURE;
 
 #define SIGMSG "received %s, %s"
@@ -105,7 +106,7 @@ dhcpsd_signal_cb(int sig, __unused void *arg)
 		return;
 	}
 
-	eloop_exitall(exit_code);
+	eloop_exit(ctx->ctx_eloop, exit_code);
 }
 
 int
@@ -187,7 +188,7 @@ dhcpsd_fork_cb(void *arg, unsigned short e)
 
 /* Complicated, but it ensures we don't get a controlling terminal
  * and the ppid of any child processed match the main process. */
-static int
+static pid_t
 dhcpsd_fork(struct ctx *ctx)
 {
 	int fork_fd[2];
@@ -271,7 +272,7 @@ dhcpsd_fork(struct ctx *ctx)
 		}
 		break;
 	}
-	return 0;
+	return pid;
 }
 
 static void
