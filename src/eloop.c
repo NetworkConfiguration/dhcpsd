@@ -1056,6 +1056,16 @@ eloop_start(struct eloop *eloop)
 
 #ifndef USE_KQUEUE
 		if (eloop_nsig != 0) {
+			/* Inner loops generally don't have signals attached
+			 * but we do need to exit the loop to when interrupted
+			 * with SIGTERM or SIGINT. */
+			if (eloop->signal_cb == NULL) {
+				eloop_exit(eloop,
+				    eloop_sig[eloop_nsig - 1] == SIGTERM ?
+					EXIT_SUCCESS :
+					EXIT_FAILURE);
+				return 0;
+			}
 			int n = eloop_sig[--eloop_nsig];
 
 			if (eloop->signal_cb != NULL)
