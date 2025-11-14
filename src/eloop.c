@@ -49,19 +49,18 @@
 #include <sys/epoll.h>
 
 #include <linux/version.h>
-#include <poll.h>
 #define USE_EPOLL
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
 #define HAVE_EPOLL_PWAIT2
 #endif
 #else
-#include <poll.h>
 #define USE_PPOLL
 #endif
 
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -153,8 +152,6 @@ struct eloop {
 	bool epoll_pwait2_nosys;
 #endif
 };
-
-TAILQ_HEAD(eloop_head, eloop) eloops = TAILQ_HEAD_INITIALIZER(eloops);
 
 #ifdef HAVE_REALLOCARRAY
 #define eloop_realloca reallocarray
@@ -832,7 +829,6 @@ eloop_new(void)
 	}
 #endif
 
-	TAILQ_INSERT_TAIL(&eloops, eloop, next);
 	return eloop;
 }
 
@@ -848,15 +844,41 @@ eloop_free(struct eloop *eloop)
 		close(eloop->fd);
 #endif
 	free(eloop->fds);
-	TAILQ_REMOVE(&eloops, eloop, next);
 	free(eloop);
 }
 
-#if defined(USE_KQUEUE)
+static unsigned short
+eloop_pollevents(struct pollfd *pfd)
+{
+	unsigned short events = 0;
 
-static int eloop_kqueue_signals[] = { SIGINT, SIGTERM };
-#define eloop_kqueue_nsignals \
-	sizeof(eloop_kqueue_signals) / sizeof(eloop_kqueue_signals[0])
+	if (pfd->revents & POLLIN)
+		events |= ELE_READ;
+	if (pfd->revents & POLLOUT)
+		events |= ELE_WRITE;
+	if (pfd->revents & POLLHUP)
+		events |= ELE_HANGUP;
+	if (pfd->revents & POLLERR)
+		events |= ELE_ERROR;
+	if (pfd->revents & POLLNVAL)
+		events |= ELE_NVAL;
+	return events;
+}
+
+int
+eloop_waitfd(int fd)
+{
+	struct pollfd pfd = { .fd = fd, .events = POLLIN };
+	int err;
+
+	err = ppoll(&pfd, 1, NULL, NULL);
+	if (err == -1 || err == 0)
+		return err;
+
+	return (int)eloop_pollevents(&pfd);
+}
+
+#if defined(USE_KQUEUE)
 
 static int
 eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
@@ -866,16 +888,6 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 	struct eloop_event *e;
 	unsigned short events;
 
-	/* Inner loops generally don't have signals attached
-	 * but we do need to exit the loop to when interrupted
-	 * with SIGTERM or SIGINT. */
-	if (eloop->nsignals == 0 && TAILQ_FIRST(&eloops)->nsignals) {
-		eloop_signal_kqueue(eloop, eloop_kqueue_signals,
-		    eloop_kqueue_nsignals);
-		eloop->signals = eloop_kqueue_signals;
-		eloop->nsignals = eloop_kqueue_nsignals;
-	}
-
 	n = kevent(eloop->fd, NULL, 0, eloop->fds, (KEVENT_N)eloop->nfds, ts);
 	if (n == -1)
 		return -1;
@@ -883,15 +895,10 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 	for (nn = n, ke = eloop->fds; nn != 0; nn--, ke++) {
 		if (eloop->exitnow || eloop->events_invalid)
 			break;
-		e = (struct eloop_event *)ke->udata;
 		if (ke->filter == EVFILT_SIGNAL) {
-			if (eloop->signal_cb == NULL) {
-				eloop_exit(eloop,
-				    ke->ident == SIGTERM ? EXIT_SUCCESS :
-							   EXIT_FAILURE);
-				return nn;
-			}
-			eloop->signal_cb((int)ke->ident, eloop->signal_cb_ctx);
+			if (eloop->signal_cb != NULL)
+				eloop->signal_cb((int)ke->ident,
+				    eloop->signal_cb_ctx);
 			continue;
 		}
 		if (ke->filter == EVFILT_READ)
@@ -911,6 +918,7 @@ eloop_run_kqueue(struct eloop *eloop, const struct timespec *ts)
 			events |= ELE_HANGUP;
 		if (ke->flags & EV_ERROR)
 			events |= ELE_ERROR;
+		e = (struct eloop_event *)ke->udata;
 		e->cb(e->cb_arg, events);
 	}
 
@@ -1056,20 +1064,10 @@ eloop_start(struct eloop *eloop)
 
 #ifndef USE_KQUEUE
 		if (eloop_nsig != 0) {
-			/* Inner loops generally don't have signals attached
-			 * but we do need to exit the loop to when interrupted
-			 * with SIGTERM or SIGINT. */
-			if (eloop->signal_cb == NULL) {
-				eloop_exit(eloop,
-				    eloop_sig[eloop_nsig - 1] == SIGTERM ?
-					EXIT_SUCCESS :
-					EXIT_FAILURE);
-				return 0;
-			}
-			int n = eloop_sig[--eloop_nsig];
+			int sig = eloop_sig[--eloop_nsig];
 
 			if (eloop->signal_cb != NULL)
-				eloop->signal_cb(n, eloop->signal_cb_ctx);
+				eloop->signal_cb(sig, eloop->signal_cb_ctx);
 			continue;
 		}
 #endif
