@@ -45,7 +45,6 @@ struct svc_result {
 
 struct svc_ctx {
 	struct ctx *svc_ctx;
-	struct eloop *svc_eloop;
 	int svc_fd;
 	void *svc_buf;
 	size_t svc_buflen;
