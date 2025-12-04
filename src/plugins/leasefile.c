@@ -86,10 +86,12 @@ lf_write_lease(void *arg, struct dhcp_lease *lease)
 	char clientidbuf[lease->dl_clientid[0] * 3];
 	const char *clientid, *flags;
 
-	gmtime_r(&lease->dl_leased.tv_sec, &leased);
+	if (gmtime_r(&lease->dl_leased.tv_sec, &leased) == NULL)
+		return -1;
 	if (strftime(sleased, sizeof(sleased), ISO8061_FMT, &leased) == 0)
 		return -1;
-	gmtime_r(&lease->dl_expires.tv_sec, &expires);
+	if (gmtime_r(&lease->dl_expires.tv_sec, &expires) == NULL)
+		return -1;
 	if (strftime(sexpires, sizeof(sexpires), ISO8061_FMT, &expires) == 0)
 		return -1;
 

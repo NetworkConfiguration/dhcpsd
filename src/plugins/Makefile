@@ -48,6 +48,8 @@ lua.So:
 lua.so: lua.So
 	${CC} ${LDFLAGS} -shared -Wl,-x -o $@ -Wl,-soname,$@ lua.So ${LUA_LIBS}
 
+lint: _lint
+
 proginstall: ${PLUGS}
 	${INSTALL} -d ${DESTDIR}${PLUGINDIR}
 	${INSTALL} -m ${BINMODE} ${PROG} ${PLUGS} ${DESTDIR}${PLUGINDIR}

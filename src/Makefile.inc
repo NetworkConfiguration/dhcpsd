@@ -10,7 +10,7 @@ format:
 	find . -iname "*.c" -o -iname "*.h" -not -name verstable.h | \
 		xargs clang-format -i
 
-lint:
+_lint:
 	clang-tidy ${SRCS} -- ${CPPFLAGS} ${CFLAGS} -isystem ${TOP}/vendor
 
 include ${TOP}/Makefile.inc

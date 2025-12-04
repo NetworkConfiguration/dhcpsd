@@ -157,6 +157,7 @@ struct dhcp_pool {
 	struct in_addr dp_mask;
 	struct in_addr dp_from;
 	struct in_addr dp_to;
+	uint32_t dp_lease_time;
 };
 
 #define DHCP_CLIENTID_LEN 1 + 255 /* first byte is length */

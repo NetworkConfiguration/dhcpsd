@@ -48,8 +48,8 @@ struct plugin {
 	int (*p_init_proto)(struct plugin *);
 	int (*p_unload)(struct plugin *);
 	ssize_t (*p_configure_pools)(struct plugin *, struct interface *ifp);
-	int (*p_lookup_addr)(struct plugin *, struct sockaddr *, const char *,
-	    const struct bootp *, size_t);
+	int (*p_lookup_addr)(struct plugin *, struct sockaddr *, uint32_t *,
+	    const char *, const struct bootp *, size_t);
 	int (*p_lookup_hostname)(struct plugin *, char *, const struct bootp *,
 	    size_t);
 	int (*p_addr_to_hostname)(struct plugin *, const struct sockaddr *sa);

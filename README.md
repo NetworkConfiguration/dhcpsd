@@ -61,8 +61,10 @@ Here is an example of how to use it.
 local domain = 'internal'
 
 -- Lookup table to match hostname to IP address.
+-- Return a table of IP address and lease time to specify a lease time per host.
 local hostnames = {
 	['netbsd'] = '10.73.1.70',
+	['freebsd'] = { '10.73.1.71', 30 },
 }
 
 -- Lookup table to match ethernet to hostnames.
@@ -102,6 +104,7 @@ end
 -- You can return a single table with address, netmask, from and to
 -- or a table of the above table (ie an array).
 -- Each address MUST exist on the interface.
+-- Setting a lease_time for the pool is optional.
 function configure_pools(if_name)
 	if if_name == 'bridge0' then
 		return {
@@ -109,6 +112,7 @@ function configure_pools(if_name)
 			netmask = '255.255.255.0',
 			from = '10.73.1.100',
 			to = '10.73.1.200',
+			lease_time = 3600,
 		}
 	end
 end

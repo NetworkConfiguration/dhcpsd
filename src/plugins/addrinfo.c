@@ -50,7 +50,8 @@ static const char addrinfo_description[] =
 
 static int
 addrinfo_lookup_addr(struct plugin *p, struct sockaddr *sa,
-    const char *hostname, const struct bootp *bootp, size_t bootplen)
+    __unused uint32_t *ltime, const char *hostname, const struct bootp *bootp,
+    size_t bootplen)
 {
 	const uint8_t *opt;
 	char hname[MAXHOSTNAMELEN + 1];

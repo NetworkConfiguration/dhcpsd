@@ -61,6 +61,9 @@ ${TOP}/vendor/rbtree.o:
 ${PROG}: ${DEPEND} ${OBJS}
 	${CC} ${LDFLAGS} -o $@ ${OBJS} ${LDADD}
 
+lint: _lint
+	for x in ${SUBDIRS}; do ${MAKE} -C $$x $@ || exit $$?; done
+
 proginstall: ${PROG}
 	${INSTALL} -d ${DESTDIR}${SBINDIR}
 	${INSTALL} -m ${BINMODE} ${PROG} ${DESTDIR}${SBINDIR}

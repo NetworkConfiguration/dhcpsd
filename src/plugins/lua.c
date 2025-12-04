@@ -92,10 +92,11 @@ lua_run_configure_pools(struct plugin *p, struct svc_ctx *sctx,
 	size_t npools = 0;
 	ssize_t err = -1;
 	struct dhcp_pool *pool, *pools = NULL;
-	int laddress, lnetmask, lfrom, lto;
+	int laddress, lnetmask, lfrom, lto, llease_time;
 	uint8_t cidr;
 	const char *saddress, *snetmask, *sfrom, *sto;
 	in_addr_t address, netmask, from, to;
+	uint32_t lease_time;
 	bool first = true, array = true;
 
 	if (ifnamelen == 0 || ifname[ifnamelen - 1] != '\0') {
@@ -181,6 +182,12 @@ lua_run_configure_pools(struct plugin *p, struct svc_ctx *sctx,
 			goto skip;
 		}
 
+		llease_time = lua_getfield(L, -5, "lease_time");
+		if (llease_time == LUA_TNUMBER)
+			lease_time = (uint32_t)lua_tonumber(L, -1);
+		else
+			lease_time = 0;
+
 		pool = reallocarray(pools, npools + 1, sizeof(*pool));
 		if (pool == NULL) {
 			logerr("%s: reallocarray", __func__);
@@ -194,9 +201,15 @@ lua_run_configure_pools(struct plugin *p, struct svc_ctx *sctx,
 		pool->dp_from.s_addr = from;
 		pool->dp_to.s_addr = to;
 		cidr = inet_ntocidr(&pool->dp_mask);
+		pool->dp_lease_time = lease_time;
 
-		loginfox("%s: %s: pool for %s/%d: %s - %s", ifname, lua_name,
-		    saddress, cidr, sfrom, sto);
+		if (lease_time != 0)
+			loginfox("%s: %s: pool for %s/%d: %s - %s (%u secs)",
+			    ifname, lua_name, saddress, cidr, sfrom, sto,
+			    lease_time);
+		else
+			loginfox("%s: %s: pool for %s/%d: %s - %s", ifname,
+			    lua_name, saddress, cidr, sfrom, sto);
 	skip:
 		lua_pop(L, 4);
 
@@ -285,7 +298,11 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 #endif
 	};
 	struct sockaddr *sa = (struct sockaddr *)&sin;
-	size_t salen = 0;
+	uint32_t ltime = 0;
+	struct iovec iov[] = {
+		{ .iov_base = &ltime, .iov_len = sizeof(ltime) },
+		{ .iov_base = &sin, .iov_len = sizeof(sin) },
+	};
 
 	lua_pop(L, lua_gettop(L));
 
@@ -306,7 +323,15 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 		goto out;
 	}
 
-	if (!lua_isstring(L, -1)) {
+	if (lua_istable(L, -1)) {
+		lua_gettable(L, -1);
+		if (lua_rawgeti(L, -1, 2) == LUA_TNUMBER)
+			ltime = (uint32_t)lua_tonumber(L, -1);
+		if (lua_rawgeti(L, -2, 1) != LUA_TSTRING) {
+			errno = EINVAL;
+			goto out;
+		}
+	} else if (!lua_isstring(L, -1)) {
 		errno = ESRCH;
 		goto out;
 	}
@@ -319,10 +344,9 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 	}
 
 	err = 0;
-	salen = sizeof(sin);
 
 out:
-	return svc_send(sctx, p, L_LOOKUPADDR, err, sa, salen);
+	return svc_sendv(sctx, p, L_LOOKUPADDR, err, iov, ARRAYCOUNT(iov));
 }
 
 static int
@@ -398,14 +422,40 @@ lua_set_bootp_file(lua_State *L)
 }
 
 static int
+lua_dhcp_tok(struct lua_ctx *l, uint8_t opt, char *str)
+{
+	uint8_t *o = l->l_p;
+	char *tok, *next;
+	in_addr_t ip;
+
+	tok = next = str;
+	while (tok != NULL) {
+		strsep(&next, ", ");
+		if (*tok == '\0')
+			goto next;
+		if (inet_pton(AF_INET, tok, &ip) != 1) {
+			logerrx("%s: not an ip address %s", lua_name, tok);
+			goto next;
+		}
+		if (tok == str)
+			DHCP_PUT_U32(&l->l_p, l->l_e, opt, ip);
+		else
+			DHCP_EXTEND_U32(o, &l->l_p, l->l_e, ip);
+	next:
+		tok = next;
+	}
+
+	return 0;
+}
+
+static int
 lua_add_dhcp_ip(lua_State *L)
 {
 	struct lua_ctx *l = &lua_ctx;
 	long long optn = luaL_checkinteger(L, 1);
 	const char *data = luaL_checkstring(L, 2);
-	char *str, *tok, *next;
-	in_addr_t ip;
-	uint8_t *opt;
+	char *str;
+	int err;
 
 	if (optn < 1 || optn > 255) {
 		logerrx("%s: option out of range: %lld", lua_name, optn);
@@ -421,25 +471,33 @@ lua_add_dhcp_ip(lua_State *L)
 	if (str == NULL)
 		return 0;
 
-	opt = l->l_p;
-	tok = next = str;
-	while (tok != NULL) {
-		strsep(&next, ", ");
-		if (*tok == '\0')
-			goto next;
-		if (inet_pton(AF_INET, tok, &ip) != 1) {
-			logerrx("%s: not an ip address %s", lua_name, tok);
-			goto next;
-		}
-		if (tok == str)
-			DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, ip);
-		else
-			DHCP_EXTEND_U32(opt, &l->l_p, l->l_e, ip);
-	next:
-		tok = next;
+	err = lua_dhcp_tok(l, (uint8_t)optn, str);
+	free(str);
+	return err;
+}
+
+static int
+lua_add_dhcp_u32(lua_State *L)
+{
+	struct lua_ctx *l = &lua_ctx;
+	long long optn = luaL_checkinteger(L, 1);
+	long long data = luaL_checkinteger(L, 2);
+
+	if (optn < 1 || optn > 255) {
+		logerrx("%s: option out of range: %lld", lua_name, optn);
+		return 0;
+	}
+	if (data < 0 || data > UINT32_MAX) {
+		logerrx("%s: data out of range: %lld", lua_name, data);
+		return 0;
 	}
 
-	free(str);
+	if (l->l_p == NULL || l->l_e == NULL) {
+		logerrx("%s: cannot add options", lua_name);
+		return 0;
+	}
+
+	DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, data);
 	return 0;
 }
 
@@ -661,6 +719,7 @@ lua_init(struct plugin *p)
 		{ "set_bootp_file", lua_set_bootp_file },
 		{ "get_option", lua_get_dhcp_option },
 		{ "add_ip", lua_add_dhcp_ip },
+		{ "add_u32", lua_add_dhcp_u32 },
 		{ "add_string", lua_add_dhcp_string },
 		{ NULL, NULL },
 	};
@@ -745,8 +804,8 @@ lua_lookup_hostname(struct plugin *p, char *hostname, const struct bootp *bootp,
 }
 
 static int
-lua_lookup_addr(struct plugin *p, struct sockaddr *sa, const char *hostname,
-    const struct bootp *bootp, size_t bootplen)
+lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
+    const char *hostname, const struct bootp *bootp, size_t bootplen)
 {
 	char hname[DHCP_HOSTNAME_LEN] = { '\0' };
 	struct iovec iov[] = {
@@ -754,17 +813,25 @@ lua_lookup_addr(struct plugin *p, struct sockaddr *sa, const char *hostname,
 		{ .iov_base = UNCONST(bootp), .iov_len = bootplen },
 	};
 	ssize_t err, result;
-	void *_sa;
-	size_t salen;
+	void *data;
+	uint8_t *dp;
+	size_t len;
 
 	if (hostname != NULL)
 		strlcpy(hname, hostname, sizeof(hname));
 	err = svc_runv(p->p_ctx->ctx_unpriv, p, L_LOOKUPADDR, iov,
-	    ARRAYCOUNT(iov), &result, &_sa, &salen);
+	    ARRAYCOUNT(iov), &result, &data, &len);
 
 	if (err == -1 || result == -1)
 		return -1;
-	memcpy(sa, _sa, salen);
+	if (len < sizeof(*ltime) + sizeof(struct sockaddr_in)) {
+		errno = EINVAL;
+		return -1;
+	}
+	dp = data;
+	memcpy(ltime, dp, sizeof(*ltime));
+	dp += sizeof(*ltime);
+	memcpy(sa, dp, len - sizeof(*ltime));
 	return 0;
 }
 

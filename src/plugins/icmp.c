@@ -88,7 +88,7 @@ struct icmp_hold {
 struct icmp_ctx {
 	struct ctx *i_ctx;
 	int i_fd;
-	uint8_t *i_buf;
+	void *i_buf;
 	size_t i_buflen;
 	icmp_addr_map i_hold;
 #ifdef HAVE_CASPER
@@ -119,6 +119,7 @@ icmp_echo_request(void *arg)
 		.icmp_seq = htons(ih->ih_nrequests),
 	};
 	struct sockaddr *sa = (struct sockaddr *)&ih->ih_sin;
+	socklen_t salen = (socklen_t)sa_len(sa);
 
 	icmp.icmp_cksum = in_cksum(&icmp, sizeof(icmp), NULL);
 	if (icmp.icmp_cksum == 0)
@@ -132,13 +133,12 @@ icmp_echo_request(void *arg)
 	logdebugx("%s: echo request: %s %u", icmp_name,
 	    inet_ntoa(ih->ih_sin.sin_addr), ih->ih_id);
 #ifdef HAVE_CASPER
-	if (cap_connect(ctx->i_ctx->ctx_capnet, ctx->i_capfd, sa, sa_len(sa)) ==
-	    -1)
+	if (cap_connect(ctx->i_ctx->ctx_capnet, ctx->i_capfd, sa, salen) == -1)
 		logerr("%s: cap_connect", __func__);
 	else if (send(ctx->i_capfd, &icmp, sizeof(icmp), 0) == -1)
 		logerr("%s: send", __func__);
 #else
-	if (sendto(ctx->i_fd, &icmp, sizeof(icmp), 0, sa, sa_len(sa)) == -1)
+	if (sendto(ctx->i_fd, &icmp, sizeof(icmp), 0, sa, salen) == -1)
 		logerr("%s: sendto", __func__);
 #endif
 }
@@ -230,7 +230,7 @@ icmp_read0(struct icmp_ctx *ctx, int fd, unsigned short e)
 		return;
 	}
 
-	icmp = (struct icmp *)(ctx->i_buf + hlen);
+	icmp = (struct icmp *)(void *)((uint8_t *)ctx->i_buf + hlen);
 	if (icmp->icmp_type != ICMP_ECHOREPLY)
 		return;
 

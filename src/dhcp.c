@@ -502,8 +502,8 @@ dhcp_plugin_validateaddr(struct ctx *ctx, const struct in_addr *addr)
 }
 
 static struct in_addr
-dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, const struct bootp *bootp,
-    size_t len)
+dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, uint32_t *ltime,
+    const struct bootp *bootp, size_t len)
 {
 	struct plugin *p;
 	struct sockaddr_in sin = {
@@ -516,6 +516,9 @@ dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, const struct bootp *bootp,
 	int err;
 	const char *hname = NULL;
 	size_t l;
+
+	/* We might not get a least time so set to zero for a default. */
+	*ltime = 0;
 
 	PLUGIN_FOREACH(ctx, p)
 	{
@@ -547,8 +550,8 @@ dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, const struct bootp *bootp,
 	{
 		if (p->p_lookup_addr == NULL)
 			continue;
-		err = p->p_lookup_addr(p, (struct sockaddr *)&sin, hname, bootp,
-		    len);
+		err = p->p_lookup_addr(p, (struct sockaddr *)&sin, ltime, hname,
+		    bootp, len);
 		if (err == -1) {
 			if (errno != ESRCH && errno != ENOSYS)
 				logerr("plugin %s", p->p_name);
@@ -787,10 +790,17 @@ dhcp_addoptions(struct bootp *bootp, uint8_t **p, const uint8_t *e,
 	DHCP_PUT_B(p, e, DHO_MESSAGETYPE, type);
 	DHCP_PUT_U32(p, e, DHO_SERVERID, pool->dp_addr.s_addr);
 	if (type == DHCP_OFFER || type == DHCP_ACK) {
-		uint32_t u32, lease_time = ctx->dhcp_lease_time;
+		uint32_t u32, lease_time;
 		struct plugin *plug;
 		int n;
 
+		if (pool->dp_lease_time != 0)
+			lease_time = pool->dp_lease_time;
+		else
+			lease_time = ctx->dhcp_lease_time;
+
+		/* Allow the client to request a shorter leasetime
+		 * but not a longer one. */
 		opt = dhcp_findoption(req, reqlen, DHO_LEASETIME);
 		if (opt != NULL && opt[0] == sizeof(u32)) {
 			memcpy(&u32, opt + 1, sizeof(u32));
@@ -988,17 +998,23 @@ dhcp_set_expire_timeout(struct dhcp_ctx *ctx)
 
 static void
 dhcp_lease_settime(struct dhcp_ctx *ctx, struct dhcp_lease *lease,
-    struct timespec *now, const struct bootp *bootp, size_t len)
+    struct timespec *now, uint32_t lease_time, const struct bootp *bootp,
+    size_t len)
 {
 	const uint8_t *opt;
-	uint32_t u32, lease_time = ctx->dhcp_lease_time;
 
-	opt = dhcp_findoption(bootp, len, DHO_LEASETIME);
-	if (opt != NULL && opt[0] == sizeof(u32)) {
-		memcpy(&u32, opt + 1, sizeof(u32));
-		u32 = ntohl(u32);
-		if (u32 < lease_time)
-			lease_time = u32;
+	if (lease_time == 0) {
+		uint32_t u32;
+
+		lease_time = ctx->dhcp_lease_time;
+
+		opt = dhcp_findoption(bootp, len, DHO_LEASETIME);
+		if (opt != NULL && opt[0] == sizeof(u32)) {
+			memcpy(&u32, opt + 1, sizeof(u32));
+			u32 = ntohl(u32);
+			if (u32 < lease_time)
+				lease_time = u32;
+		}
 	}
 
 	if (lease->dl_in_expire_tree) {
@@ -1095,6 +1111,7 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 	uint8_t type, clientid[DHCP_CLIENTID_LEN + 1], fqdn_flags;
 	struct in_addr addr = { .s_addr = INADDR_ANY };
 	char phostname[DHCP_HOSTNAME_LEN] = { '\0' };
+	uint32_t pltime = 0;
 	struct in_addr paddr = { .s_addr = INADDR_ANY };
 	struct dhcp_lease *lease = NULL, *wanted = NULL;
 	char clid_buf[sizeof(clientid) * 3];
@@ -1153,8 +1170,10 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 		clientid[0] = bootp->hlen + 1;
 		clientid[1] = bootp->htype;
 		memcpy(clientid + 2, bootp->chaddr, bootp->hlen);
-	} else
+	} else {
 		clientid[0] = '\0';
+		clientid[1] = '\0'; /* silences maybe uninitialiased warning */
+	}
 
 	clid = hwaddr_ntoa(clientid + 1, clientid[0], clid_buf,
 	    sizeof(clid_buf));
@@ -1170,7 +1189,7 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 			return;
 		if (lease->dl_addr.s_addr == INADDR_ANY) {
 			lease->dl_addr = dhcp_plugin_findaddr(ifp->if_ctx,
-			    phostname, bootp, len);
+			    phostname, &pltime, bootp, len);
 			if (lease->dl_addr.s_addr != INADDR_ANY)
 				lease->dl_flags |= DL_PLUGIN_ADDRESS;
 		}
@@ -1260,8 +1279,8 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 		}
 		/* FALLTHROUGH */
 	case DHCP_REQUEST:
-		paddr = dhcp_plugin_findaddr(ifp->if_ctx, phostname, bootp,
-		    len);
+		paddr = dhcp_plugin_findaddr(ifp->if_ctx, phostname, &pltime,
+		    bootp, len);
 		if (paddr.s_addr == INADDR_ANY)
 			break;
 		wanted = dhcp_lease_findaddr(ctx, &paddr);
@@ -1365,7 +1384,7 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 			expires = lease->dl_expires;
 		else
 			timespecclear(&expires);
-		dhcp_lease_settime(ctx, lease, &now, bootp, len);
+		dhcp_lease_settime(ctx, lease, &now, pltime, bootp, len);
 		if (wanted != lease) {
 			if (dhcp_lease_insertaddr(ctx, lease) == -1) {
 				logerr("%s: dhcp_lease_insertaddr", __func__);
@@ -1417,7 +1436,7 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 			lease->dl_flags |= DL_PLUGIN_ADDRESS;
 		else
 			lease->dl_flags &= ~DL_PLUGIN_ADDRESS;
-		dhcp_lease_settime(ctx, lease, &now, bootp, len);
+		dhcp_lease_settime(ctx, lease, &now, pltime, bootp, len);
 		if (wanted != lease) {
 			if (dhcp_lease_insertaddr(ctx, lease) == -1) {
 				logerr("%s: dhcp_lease_insertaddr", __func__);
@@ -1557,7 +1576,6 @@ out:
 			if (lease->dl_hostname[0] != '\0')
 				lease->dl_flags |= DL_HOSTNAME;
 		}
-		dhcp_commit_lease(ctx, lease, bootp, len);
 		break;
 	}
 
@@ -1567,6 +1585,10 @@ out:
 	case DHCP_ACK:
 	case DHCP_NAK:
 		dhcp_output(ifp, lease, type, msg, bootp, len);
+		/* Commit the lease after sending it as it might
+		 * be a slow operation depending on what the plugins do. */
+		if (type != DHCP_NAK)
+			dhcp_commit_lease(ctx, lease, bootp, len);
 		break;
 	}
 }
