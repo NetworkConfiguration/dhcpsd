@@ -267,6 +267,16 @@ uint32_t dhcp_atof(const char *);
 		memcpy(*(p), (v), (l));        \
 		*(p) = *(p) + (l);             \
 	} while (0 /* CONSTCOND */)
+#define DHCP_PUT_U8(p, e, o, v)                                     \
+	do {                                                        \
+		DHCP_PUT_CHECK((p), (e), sizeof(uint8_t));          \
+		DHCP_PUT_BIN((p), (e), (o), &(v), sizeof(uint8_t)); \
+	} while (0 /* CONSTCOND */)
+#define DHCP_PUT_U16(p, e, o, v)                                     \
+	do {                                                         \
+		DHCP_PUT_CHECK((p), (e), sizeof(uint16_t));          \
+		DHCP_PUT_BIN((p), (e), (o), &(v), sizeof(uint16_t)); \
+	} while (0 /* CONSTCOND */)
 #define DHCP_PUT_U32(p, e, o, v)                                     \
 	do {                                                         \
 		DHCP_PUT_CHECK((p), (e), sizeof(uint32_t));          \

@@ -84,6 +84,7 @@ local dhcp_opts = {
 	['DNSSERVER'] = 6,
 	['HOSTNAME'] = 12,
 	['DNSDOMAIN'] = 15,
+	['MTU'] = 26,
 	['PARAMETERREQUESTLIST'] = 55,
 	['FQDN'] = 81,
 }
@@ -178,6 +179,9 @@ function lookup_addr(hostname, htype, chaddr)
 end
 
 -- dhcpsd will call this function to add options to a DHCP reply.
+-- The dhcp table adds the following functions:
+--     add_ip, add_string, add_uint32, add_uint16 and add_uint8
+--     set_bootp_file, set_bootp_sname
 -- Return non zero to stop other plugins applying options.
 function add_dhcp_options(hostname, htype, chaddr)
 	if has_parameter_request(dhcp_opts['SUBNETMASK']) then
@@ -189,6 +193,9 @@ function add_dhcp_options(hostname, htype, chaddr)
 	if has_parameter_request(dhcp_opts['DNSSERVER']) then
 		dhcp.add_ip(dhcp_opts['DNSSERVER'], '10.73.1.1, 10.73.1.2')
 	end
+
+    -- If the subnet needs a specific MTU for PPPoE, etc
+    -- dhcp.add_uint16(dhcp_opts['MTU'], 1480);
 
 	hostname = trim_domain(hostname)
 	if dhcp.get_option(dhcp_opts['HOSTNAME']) == 'netbsd' then

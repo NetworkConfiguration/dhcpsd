@@ -457,7 +457,7 @@ lua_add_dhcp_ip(lua_State *L)
 	char *str;
 	int err;
 
-	if (optn < 1 || optn > 255) {
+	if (optn < 1 || optn > 254) {
 		logerrx("%s: option out of range: %lld", lua_name, optn);
 		return 0;
 	}
@@ -477,13 +477,68 @@ lua_add_dhcp_ip(lua_State *L)
 }
 
 static int
-lua_add_dhcp_u32(lua_State *L)
+lua_add_dhcp_uint8(lua_State *L)
 {
 	struct lua_ctx *l = &lua_ctx;
 	long long optn = luaL_checkinteger(L, 1);
 	long long data = luaL_checkinteger(L, 2);
+	uint8_t u8;
 
-	if (optn < 1 || optn > 255) {
+	if (optn < 1 || optn > 254) {
+		logerrx("%s: option out of range: %lld", lua_name, optn);
+		return 0;
+	}
+	if (data < 0 || data > UINT8_MAX) {
+		logerrx("%s: data out of range: %lld", lua_name, data);
+		return 0;
+	}
+
+	if (l->l_p == NULL || l->l_e == NULL) {
+		logerrx("%s: cannot add options", lua_name);
+		return 0;
+	}
+
+	u8 = (uint8_t)data;
+	DHCP_PUT_U8(&l->l_p, l->l_e, (uint8_t)optn, u8);
+	return 0;
+}
+
+static int
+lua_add_dhcp_uint16(lua_State *L)
+{
+	struct lua_ctx *l = &lua_ctx;
+	long long optn = luaL_checkinteger(L, 1);
+	long long data = luaL_checkinteger(L, 2);
+	uint16_t u16;
+
+	if (optn < 1 || optn > 254) {
+		logerrx("%s: option out of range: %lld", lua_name, optn);
+		return 0;
+	}
+	if (data < 0 || data > UINT16_MAX) {
+		logerrx("%s: data out of range: %lld", lua_name, data);
+		return 0;
+	}
+
+	if (l->l_p == NULL || l->l_e == NULL) {
+		logerrx("%s: cannot add options", lua_name);
+		return 0;
+	}
+
+	u16 = htons(data);
+	DHCP_PUT_U16(&l->l_p, l->l_e, (uint8_t)optn, u16);
+	return 0;
+}
+
+static int
+lua_add_dhcp_uint32(lua_State *L)
+{
+	struct lua_ctx *l = &lua_ctx;
+	long long optn = luaL_checkinteger(L, 1);
+	long long data = luaL_checkinteger(L, 2);
+	uint32_t u32;
+
+	if (optn < 1 || optn > 254) {
 		logerrx("%s: option out of range: %lld", lua_name, optn);
 		return 0;
 	}
@@ -497,7 +552,8 @@ lua_add_dhcp_u32(lua_State *L)
 		return 0;
 	}
 
-	DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, data);
+	u32 = htonl(data);
+	DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, u32);
 	return 0;
 }
 
@@ -508,7 +564,7 @@ lua_add_dhcp_string(lua_State *L)
 	long long optn = luaL_checkinteger(L, 1);
 	const char *data = luaL_checkstring(L, 2);
 
-	if (optn < 1 || optn > 255) {
+	if (optn < 1 || optn > 254) {
 		logerrx("%s: option out of range: %lld", lua_name, optn);
 		return 0;
 	}
@@ -719,7 +775,9 @@ lua_init(struct plugin *p)
 		{ "set_bootp_file", lua_set_bootp_file },
 		{ "get_option", lua_get_dhcp_option },
 		{ "add_ip", lua_add_dhcp_ip },
-		{ "add_u32", lua_add_dhcp_u32 },
+		{ "add_uint8", lua_add_dhcp_uint8 },
+		{ "add_uint16", lua_add_dhcp_uint16 },
+		{ "add_uint32", lua_add_dhcp_uint32 },
 		{ "add_string", lua_add_dhcp_string },
 		{ NULL, NULL },
 	};
