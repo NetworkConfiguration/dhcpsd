@@ -87,6 +87,7 @@ local dhcp_opts = {
 	['MTU'] = 26,
 	['PARAMETERREQUESTLIST'] = 55,
 	['FQDN'] = 81,
+	['DOMAINSEARCH'] = 119,
 }
 
 -- Checks if the client requested the DHCP option or not.
@@ -181,6 +182,7 @@ end
 -- dhcpsd will call this function to add options to a DHCP reply.
 -- The dhcp table adds the following functions:
 --     add_ip, add_string, add_uint32, add_uint16 and add_uint8
+--     add_domain
 --     set_bootp_file, set_bootp_sname
 -- Return non zero to stop other plugins applying options.
 function add_dhcp_options(hostname, htype, chaddr)
@@ -192,6 +194,12 @@ function add_dhcp_options(hostname, htype, chaddr)
 	end
 	if has_parameter_request(dhcp_opts['DNSSERVER']) then
 		dhcp.add_ip(dhcp_opts['DNSSERVER'], '10.73.1.1, 10.73.1.2')
+	end
+	if has_parameter_request(dhcp_opts['DNSDOMAIN']) then
+		dhcp.add_string(dhcp_opts['DNSDOMAIN'], domain)
+	end
+	if has_parameter_request(dhcp_opts['DOMAINSEARCH']) then
+		dhcp.add_domain(dhcp_opts['DOMAINSEARCH'], domain)
 	end
 
     -- If the subnet needs a specific MTU for PPPoE, etc

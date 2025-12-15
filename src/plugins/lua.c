@@ -578,6 +578,39 @@ lua_add_dhcp_string(lua_State *L)
 	return 0;
 }
 
+static int
+lua_add_dhcp_domain(lua_State *L)
+{
+	struct lua_ctx *l = &lua_ctx;
+	long long optn = luaL_checkinteger(L, 1);
+	const char *data = luaL_checkstring(L, 2);
+	uint8_t *val;
+	size_t len;
+
+	if (optn < 1 || optn > 254) {
+		logerrx("%s: option out of range: %lld", lua_name, optn);
+		return 0;
+	}
+
+	if (l->l_p == NULL || l->l_e == NULL) {
+		logerrx("%s: cannot add options", lua_name);
+		return 0;
+	}
+
+	len = encode_rfc1035(data, NULL);
+	if (len == 0)
+		val = NULL;
+	else {
+		val = malloc(len);
+		if (val == NULL)
+			return -1;
+		len = encode_rfc1035(data, val);
+	}
+
+	DHCP_PUT_BIN(&l->l_p, l->l_e, (uint8_t)optn, val, len);
+	return 0;
+}
+
 static ssize_t
 lua_run_add_dhcp_options(struct plugin *p, struct svc_ctx *sctx,
     const void *dhcp, size_t dhcplen)
@@ -779,6 +812,7 @@ lua_init(struct plugin *p)
 		{ "add_uint16", lua_add_dhcp_uint16 },
 		{ "add_uint32", lua_add_dhcp_uint32 },
 		{ "add_string", lua_add_dhcp_string },
+		{ "add_domain", lua_add_dhcp_domain },
 		{ NULL, NULL },
 	};
 
