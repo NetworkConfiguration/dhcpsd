@@ -1555,16 +1555,16 @@ out:
 		} else {
 			memset(lease->dl_hostname, '\0',
 			    sizeof(lease->dl_hostname));
-			if (opt != NULL && opt[0] >= 3) {
+			if (opt != NULL && opt[0] >= 4) {
 				if (fqdn_flags & FQDN_E) {
 					if (decode_rfc1035(lease->dl_hostname,
 						sizeof(lease->dl_hostname),
-						opt + 3, opt[0] - 3) == -1)
+						opt + 4, opt[0] - 3) == -1)
 						memset(lease->dl_hostname, '\0',
 						    sizeof(lease->dl_hostname));
 				} else {
 					// hostname field is bigger than 255
-					memcpy(lease->dl_hostname, opt + 3,
+					memcpy(lease->dl_hostname, opt + 4,
 					    opt[0] - 3);
 				}
 			} else {
