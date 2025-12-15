@@ -343,7 +343,7 @@ dhcp_outputipudp(const struct interface *ifp, const struct in_addr *src,
 		udp.uh_dport = htons(BOOTPS);
 	} else {
 		if ((bootp->ciaddr == INADDR_ANY &&
-			bootp->flags & BROADCAST_FLAG) ||
+			ntohs(bootp->flags) & BROADCAST_FLAG) ||
 		    type == DHCP_NAK)
 			ip.ip_dst.s_addr = INADDR_BROADCAST;
 		else
@@ -860,6 +860,7 @@ dhcp_output(const struct interface *ifp, const struct dhcp_lease *lease,
 
 	memset(bootp, 0, sizeof(*bootp));
 	bootp->op = BOOTREPLY;
+	bootp->flags = htons(ntohs(req->flags) & BROADCAST_FLAG);
 	bootp->htype = req->htype;
 	bootp->hlen = req->hlen;
 	if (req->hlen > 0)
@@ -1239,8 +1240,9 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 		return;
 	}
 
-	logdebugx("%s: %s 0x%x %s: %s", ifp->if_name, flags ? "cont" : "recv",
-	    bootp->xid, dhcp_message_type(type), clid);
+	logdebugx("%s: %s 0x%x %s%s: %s", ifp->if_name, flags ? "cont" : "recv",
+	    bootp->xid, dhcp_message_type(type),
+	    ntohs(bootp->flags) & BROADCAST_FLAG ? "(bcast)" : "", clid);
 
 	lease = dhcp_newlease(ctx, clientid);
 	if (lease == NULL)
