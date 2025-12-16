@@ -785,34 +785,27 @@ dhcp_addoptions(struct bootp *bootp, uint8_t **p, const uint8_t *e,
     const struct dhcp_pool *pool, const char *msg, const struct bootp *req,
     size_t reqlen)
 {
-	const uint8_t *opt;
-
 	DHCP_PUT_B(p, e, DHO_MESSAGETYPE, type);
 	DHCP_PUT_U32(p, e, DHO_SERVERID, pool->dp_addr.s_addr);
 	if (type == DHCP_OFFER || type == DHCP_ACK) {
-		uint32_t u32, lease_time;
+		struct timespec tv;
+		uint32_t u32, lease_time, renew_time, rebind_time;
 		struct plugin *plug;
 		int n;
 
-		if (pool->dp_lease_time != 0)
-			lease_time = pool->dp_lease_time;
-		else
-			lease_time = ctx->dhcp_lease_time;
+		if (timespecisset(&lease->dl_leased)) {
+			timespecsub(&lease->dl_expires, &lease->dl_leased, &tv);
+			lease_time = (uint32_t)tv.tv_sec;
+			renew_time = (uint32_t)(lease_time * T1);
+			rebind_time = (uint32_t)(lease_time * T2);
+		} else
+			lease_time = renew_time = rebind_time = INFINITE_LIFETIME;
 
-		/* Allow the client to request a shorter leasetime
-		 * but not a longer one. */
-		opt = dhcp_findoption(req, reqlen, DHO_LEASETIME);
-		if (opt != NULL && opt[0] == sizeof(u32)) {
-			memcpy(&u32, opt + 1, sizeof(u32));
-			u32 = ntohl(u32);
-			if (u32 < lease_time)
-				lease_time = u32;
-		}
 		u32 = htonl(lease_time);
 		DHCP_PUT_U32(p, e, DHO_LEASETIME, u32);
-		u32 = htonl((uint32_t)(lease_time * T1));
+		u32 = htonl(renew_time);
 		DHCP_PUT_U32(p, e, DHO_RENEWALTIME, u32);
-		u32 = htonl((uint32_t)(lease_time * T2));
+		u32 = htonl(rebind_time);
 		DHCP_PUT_U32(p, e, DHO_REBINDTIME, u32);
 
 		n = dhcp_addhostname(p, e, lease, req, reqlen);
