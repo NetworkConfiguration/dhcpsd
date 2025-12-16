@@ -17,7 +17,7 @@ DISTSIGN=	${DISTFILE}.asc
 
 CLEANFILES+=	*.tar.xz
 
-.PHONY:		hooks import import-bsd
+.PHONY:		hooks import import-bsd test
 
 .SUFFIXES:	.in
 
@@ -115,5 +115,8 @@ _import-src: clean
 
 import-src:
 	${MAKE} _import-src DESTDIR=`if [ -n "${DESTDIR}" ]; then echo "${DESTDIR}"; else  echo /tmp/${DISTPREFIX}; fi`
+
+test:
+	${MAKE} -C test $@
 
 include Makefile.inc

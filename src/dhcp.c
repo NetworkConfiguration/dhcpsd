@@ -1578,6 +1578,11 @@ out:
 			if (lease->dl_hostname[0] != '\0')
 				lease->dl_flags |= DL_HOSTNAME;
 		}
+		if (lease->dl_flags & DL_HOSTNAME) {
+			sanitize_rfc1035(lease->dl_hostname);
+			if (lease->dl_hostname[0] == '\0')
+				lease->dl_flags &= ~DL_HOSTNAME;
+		}
 		break;
 	}
 

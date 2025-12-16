@@ -91,6 +91,7 @@
 
 ssize_t decode_rfc1035(char *, size_t, const uint8_t *, size_t);
 size_t encode_rfc1035(const char *, uint8_t *);
+int sanitize_rfc1035(char *);
 const char *hwaddr_ntoa(const void *, size_t, char *, size_t);
 size_t hwaddr_aton(uint8_t *, const char *);
 struct in_addr;

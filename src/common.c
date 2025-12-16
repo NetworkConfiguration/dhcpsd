@@ -210,6 +210,92 @@ encode_rfc1035(const char *src, uint8_t *dst)
 	return len;
 }
 
+/* Returns zero if the src is completely valid, otherwise non-zero. */
+int
+sanitize_rfc1035(char *src)
+{
+	char *start, *p, *l;
+	int err = 0;
+	size_t nlabels = 1;
+
+	for (start = p = src; *p != '\0'; p++) {
+		if (p - start > NS_MAXCDNAME) {
+			*p = '\0';
+			errno = E2BIG;
+			return -1;
+		}
+		if (isalpha((int)*p) || isdigit((int)*p))
+			continue;
+
+		if (*p == '.') {
+			if (p == src || ++nlabels > NS_MAXLABELS) {
+				*p = '\0';
+				err = 1;
+				break;
+			}
+
+			/* Find the last non invalid character.
+			 * We know at least the start is valid. */
+			for (l = p - 1; l >= src; l--) {
+				if (*l != '-')
+					break;
+			}
+			/* We need to remove the last invalid charaters. */
+			if (l != p - 1) {
+				l++;
+				memmove(l, p, strlen(p) + 1);
+				p = l;
+				err = 1;
+			}
+			/* Ensure the label doesn't exceed limits */
+			if (p - src > NS_MAXLABEL) {
+				memmove(src + NS_MAXLABEL, p, strlen(p) + 1);
+				p = src + NS_MAXLABEL;
+				err = 1;
+			}
+			/* src now points to the new label. */
+			src = p + 1;
+			continue;
+		}
+
+		/* Invalid character.
+		 * If at the start of a label, just stop */
+		if (p == src) {
+			*p = '\0';
+			err = 1;
+			break;
+		}
+		/* Replace with a - */
+		*p = '-';
+		err = 1;
+	}
+
+	/* Find the last non invalid character.
+	 * We know at least the start is valid. */
+	for (l = p - 1; l >= src; l--) {
+		if (*l != '-')
+			break;
+	}
+	if (l != p - 1) {
+		*(l + 1) = '\0';
+		err = 1;
+	}
+
+	/* Trim any trailing dot */
+	if (*l == '.') {
+		*l-- = '\0';
+		err = 1;
+	}
+
+	/* Ensure the label doesn't exceed limits */
+	if (l + 1 - src >= NS_MAXLABEL) {
+		*(src + NS_MAXLABEL) = '\0';
+		err = 1;
+	}
+
+	return err;
+}
+
 const char *
 hwaddr_ntoa(const void *hwaddr, size_t hwlen, char *buf, size_t buflen)
 {
