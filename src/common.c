@@ -50,6 +50,9 @@
 #define NS_MAXDNAME  MAXDNAME
 #define NS_MAXLABEL  MAXLABEL
 #endif
+#ifndef NS_MAXLABELS
+#define NS_MAXLABELS 128
+#endif
 
 /* decode an rfc1035 dns search order option into a space
  * separated string. returns length of string (including
