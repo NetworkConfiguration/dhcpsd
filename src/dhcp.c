@@ -799,7 +799,8 @@ dhcp_addoptions(struct bootp *bootp, uint8_t **p, const uint8_t *e,
 			renew_time = (uint32_t)(lease_time * T1);
 			rebind_time = (uint32_t)(lease_time * T2);
 		} else
-			lease_time = renew_time = rebind_time = INFINITE_LIFETIME;
+			lease_time = renew_time = rebind_time =
+			    INFINITE_LIFETIME;
 
 		u32 = htonl(lease_time);
 		DHCP_PUT_U32(p, e, DHO_LEASETIME, u32);
