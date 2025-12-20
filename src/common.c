@@ -35,6 +35,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,7 +168,7 @@ encode_rfc1035(const char *src, uint8_t *dst)
 	uint8_t *p;
 	uint8_t *lp;
 	size_t len;
-	uint8_t has_dot;
+	bool has_dot, in_data, in_space;
 
 	if (src == NULL || *src == '\0')
 		return 0;
@@ -181,23 +182,35 @@ encode_rfc1035(const char *src, uint8_t *dst)
 		p = lp = NULL;
 
 	len = 1;
-	has_dot = 0;
+	has_dot = in_data = in_space = false;
 	for (; *src; src++) {
 		if (*src == '\0')
 			break;
-		if (*src == '.') {
+		if (*src == '.' || *src == ' ' || *src == ',') {
+			if (in_space)
+				continue;
 			/* Skip the trailing . */
 			if (src[1] == '\0')
 				break;
-			has_dot = 1;
-			if (dst) {
+			has_dot = true;
+			if (in_data) {
 				*lp = (uint8_t)(p - lp - 1);
 				if (*lp == '\0')
 					return len;
+				if (*src == ' ' || *src == ',')
+					*p++ = '\0';
 				lp = p++;
+				in_data = false;
 			}
-		} else if (dst)
+			if (*src == ' ' || *src == ',') {
+				in_space = true;
+				len++;
+			}
+		} else if (dst) {
 			*p++ = (uint8_t)*src;
+			in_data = true;
+			in_space = false;
+		}
 		len++;
 	}
 
