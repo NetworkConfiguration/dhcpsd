@@ -328,6 +328,7 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 		if (lua_rawgeti(L, -1, 2) == LUA_TNUMBER)
 			ltime = (uint32_t)lua_tonumber(L, -1);
 		if (lua_rawgeti(L, -2, 1) != LUA_TSTRING) {
+			logerrx("%s: lookup_addr: not a string", lua_name);
 			errno = EINVAL;
 			goto out;
 		}
@@ -886,7 +887,8 @@ lua_lookup_hostname(struct plugin *p, char *hostname, const struct bootp *bootp,
 		return -1;
 	if (hnamelen == 0)
 		return 0;
-	if (hnamelen > DHCP_HOSTNAME_LEN || ((char *)hname)[hnamelen] != '\0') {
+	if (hnamelen > DHCP_HOSTNAME_LEN ||
+	    ((char *)hname)[hnamelen - 1] != '\0') {
 		errno = EINVAL;
 		return -1;
 	}
