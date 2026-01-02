@@ -493,7 +493,7 @@ dhcp_plugin_validateaddr(struct ctx *ctx, const struct in_addr *addr)
 		if (p->p_validate_addr(p, (const struct sockaddr *)&sin) ==
 		    -1) {
 			if (errno != EINVAL)
-				logerr("plugin %s", p->p_name);
+				logerr("%s: validate_addr", p->p_name);
 			return -1;
 		}
 	}
@@ -527,7 +527,7 @@ dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, uint32_t *ltime,
 		err = p->p_lookup_hostname(p, hostname, bootp, len);
 		if (err == -1) {
 			if (errno != ESRCH && errno != ENOSYS)
-				logerr("plugin %s", p->p_name);
+				logerr("%s: lookup_hostname", p->p_name);
 			continue;
 		}
 		if (err != 0)
@@ -554,7 +554,7 @@ dhcp_plugin_findaddr(struct ctx *ctx, char *hostname, uint32_t *ltime,
 		    bootp, len);
 		if (err == -1) {
 			if (errno != ESRCH && errno != ENOSYS)
-				logerr("plugin %s", p->p_name);
+				logerr("%s: lookup_addr", p->p_name);
 			continue;
 		}
 		break;
