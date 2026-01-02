@@ -60,6 +60,9 @@ ${TOP}/vendor/rbtree.o:
 
 ${PROG}: ${DEPEND} ${OBJS}
 	${CC} ${LDFLAGS} -o $@ ${OBJS} ${LDADD}
+	if [ "${SANITIZEADDRESS}" = yes ] && type paxctl >/dev/null 2>&1; then \
+		paxctl +a ${PROG}; \
+	fi
 
 lint: _lint
 	for x in ${SUBDIRS}; do ${MAKE} -C $$x $@ || exit $$?; done
@@ -67,6 +70,9 @@ lint: _lint
 proginstall: ${PROG}
 	${INSTALL} -d ${DESTDIR}${SBINDIR}
 	${INSTALL} -m ${BINMODE} ${PROG} ${DESTDIR}${SBINDIR}
+	if [ "${SANITIZEADDRESS}" = yes ] && type paxctl >/dev/null 2>&1; then \
+		paxctl +a ${DESTDIR}${SBINDIR}/${PROG}; \
+	fi
 	${INSTALL} -m ${DBMODE} -d ${DESTDIR}${DBDIR}
 	for x in ${SUBDIRS}; do ${MAKE} -C $$x $@ || exit $$?; done
 
