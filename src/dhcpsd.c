@@ -129,8 +129,8 @@ dhcpsd_dropperms(int do_chroot)
 	UNUSED(do_chroot);
 #endif
 
-	if (setgroups(1, &pw->pw_gid) == -1 || setgid(pw->pw_gid) == -1 ||
-	    setuid(pw->pw_uid) == -1) {
+	if (initgroups(DHCPSD_USER, pw->pw_gid) == -1 ||
+	    setgid(pw->pw_gid) == -1 || setuid(pw->pw_uid) == -1) {
 		logerr("%s: error dropping privileges", __func__);
 		return -1;
 	}
