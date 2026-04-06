@@ -33,7 +33,7 @@
 
 struct ctx;
 struct interface;
-struct svc_ctx;
+struct srv_ctx;
 struct bootp;
 struct dhcp_pool;
 struct dhcp_lease;
@@ -66,7 +66,7 @@ struct plugin {
 	    const struct bootp *, size_t, unsigned int *);
 	int (*p_expire_lease)(struct plugin *, const struct dhcp_lease *);
 	int (*p_store_leases)(struct plugin *);
-	ssize_t (*p_dispatch)(struct plugin *, struct svc_ctx *, unsigned int,
+	ssize_t (*p_dispatch)(struct plugin *, struct srv_ctx *, unsigned int,
 	    const void *, size_t);
 	int p_unpriv;
 };

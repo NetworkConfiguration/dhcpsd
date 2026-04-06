@@ -36,7 +36,7 @@
  * On Linux use epoll(7)
  * Everywhere else use ppoll(2)
  */
-#ifdef BSD
+#if defined(BSD) || defined(__APPLE__)
 #include <sys/event.h>
 #define USE_KQUEUE
 #if defined(__NetBSD__)
@@ -625,6 +625,8 @@ eloop_open(struct eloop *eloop)
 	fd = kqueue1(O_CLOEXEC);
 #elif defined(KQUEUE_CLOEXEC)
 	fd = kqueuex(KQUEUE_CLOEXEC);
+#elif defined(USE_KQUEUE) && defined(__APPLE__)
+	fd = kqueue();
 #elif defined(USE_KQUEUE)
 	int flags;
 
@@ -871,7 +873,7 @@ eloop_waitfd(int fd)
 	struct pollfd pfd = { .fd = fd, .events = POLLIN };
 	int err;
 
-	err = ppoll(&pfd, 1, NULL, NULL);
+	err = poll(&pfd, 1, -1);
 	if (err == -1 || err == 0)
 		return err;
 

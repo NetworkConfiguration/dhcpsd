@@ -36,35 +36,37 @@
 
 struct plugin;
 
-struct svc_result {
+struct srv_result {
 	ssize_t sr_result;
 	int sr_errno;
 	void *sr_data;
 	size_t sr_datalen;
 };
 
-struct svc_ctx {
-	struct ctx *svc_ctx;
-	int svc_fd;
-	void *svc_buf;
-	size_t svc_buflen;
-	struct svc_result svc_result;
-	ssize_t (*svc_dispatch)(struct svc_ctx *, struct plugin *, unsigned int,
+struct srv_ctx {
+	struct ctx *srv_ctx;
+	int srv_fd;
+	void *srv_buf;
+	size_t srv_buflen;
+	struct srv_result srv_result;
+	ssize_t (*srv_dispatch)(struct srv_ctx *, struct plugin *, unsigned int,
 	    const void *, size_t);
 };
 
-struct svc_ctx *svc_init(struct ctx *, const char *,
-    ssize_t (*dispatch)(struct svc_ctx *, struct plugin *, unsigned int,
+struct srv_ctx *srv_init(struct ctx *, const char *,
+    ssize_t (*dispatch)(struct srv_ctx *, struct plugin *, unsigned int,
 	const void *, size_t));
-void svc_free(struct svc_ctx *);
-#define svc_dropperms dhcpsd_dropperms
-ssize_t svc_send(struct svc_ctx *, struct plugin *, unsigned int, ssize_t,
+void srv_free(struct srv_ctx *);
+#define srv_dropperms dhcpsd_dropperms
+ssize_t srv_send(struct srv_ctx *, struct plugin *, unsigned int, ssize_t,
     const void *, size_t);
-ssize_t svc_sendv(struct svc_ctx *, struct plugin *, unsigned int, ssize_t,
+ssize_t srv_sendv(struct srv_ctx *, struct plugin *, unsigned int, ssize_t,
     struct iovec *, int);
-int svc_run(struct svc_ctx *, struct plugin *, unsigned int, const void *,
+int srv_run(struct srv_ctx *, struct plugin *, unsigned int, const void *,
     size_t, ssize_t *, void **, size_t *);
-int svc_runv(struct svc_ctx *, struct plugin *, unsigned int, struct iovec *,
+int svc_run(struct srv_ctx *, struct plugin *, unsigned int, const void *,
+    size_t, ssize_t *, void **, size_t *);
+int srv_runv(struct srv_ctx *, struct plugin *, unsigned int, struct iovec *,
     int, ssize_t *, void **, size_t *);
 
 #endif

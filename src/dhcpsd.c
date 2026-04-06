@@ -129,7 +129,7 @@ dhcpsd_dropperms(int do_chroot)
 	UNUSED(do_chroot);
 #endif
 
-	if (initgroups(DHCPSD_USER, pw->pw_gid) == -1 ||
+	if (initgroups(DHCPSD_USER, (int)pw->pw_gid) == -1 ||
 	    setgid(pw->pw_gid) == -1 || setuid(pw->pw_uid) == -1) {
 		logerr("%s: error dropping privileges", __func__);
 		return -1;
@@ -197,8 +197,7 @@ dhcpsd_fork(struct ctx *ctx)
 	cap_rights_t rights;
 #endif
 
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK,
-		0, fork_fd) == -1) {
+	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CXNB, 0, fork_fd) == -1) {
 		logerr("socketpair");
 		return -1;
 	}
@@ -250,7 +249,7 @@ dhcpsd_fork(struct ctx *ctx)
 		}
 		break;
 	default:
-#ifdef BSD
+#ifdef HAVE_SETPROCTITLE
 		setproctitle("[launcher]");
 #endif
 		ctx->ctx_options &= ~DHCPSD_MAIN;
@@ -489,7 +488,7 @@ main(int argc, char **argv)
 	if (dhcpsd_dropperms(1) == -1)
 		goto exit;
 
-#ifdef BSD
+#ifdef HAVE_SETPROCTITLE
 	setproctitle("DHCP Server Daemon");
 #endif
 
@@ -606,7 +605,7 @@ exit:
 	dhcp_free(ctx.ctx_dhcp);
 	eloop_free(ctx.ctx_eloop);
 	ctx.ctx_eloop = NULL;
-	svc_free(ctx.ctx_unpriv);
+	srv_free(ctx.ctx_unpriv);
 #ifdef HAVE_CASPER
 	if (ctx.ctx_capnet)
 		cap_close(ctx.ctx_capnet);

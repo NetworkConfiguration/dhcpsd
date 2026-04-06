@@ -25,13 +25,14 @@ MAN8+=		${LUA_MAN8}
 CLEANFILES+=	${OBJS} ${SOBJS} ${PLUGS}
 CLEANFILES+=	dhcpsd_leasefile.8 ${LUA_MAN8}
 
-.SUFFIXES:	.So .so .in
+.SUFFIXES:	.soo .so .in
+.INTERMEDIATE: icmp.soo lua.soo
 
-.c.So:
+.c.soo:
 	${CC} ${PICFLAG} -DPIC ${CFLAGS} ${CDBGFLAGS} ${CPPFLAGS} -c $< -o $@
 
-.So.so:
-	${CC} ${LDFLAGS} -shared -Wl,-x -o $@ -Wl,-soname,$@ $< ${LIBS}
+.soo.so:
+	${CC} ${LDFLAGS} ${LDFLAGS_SO} -shared -Wl,-x -o $@ $< ${LIBS}
 
 .in:
 	${SED} ${SED_CONFDIR} ${SED_DBDIR} ${SED_PLUGINDIR} $< > $@
@@ -39,14 +40,14 @@ CLEANFILES+=	dhcpsd_leasefile.8 ${LUA_MAN8}
 all: ${PLUGS} ${MAN8}
 
 # verstable.h has a few compiler warnings so we hide it away
-icmp.So:
+icmp.soo: icmp.c
 	${CC} ${PICFLAG} -DPIC ${CFLAGS} ${CPPFLAGS} ${VERSTABLE_CFLAGS} -c icmp.c -o $@
 
-lua.So:
+lua.soo: lua.c
 	${CC} ${PICFLAG} -DPIC ${CFLAGS} ${CDBGFLAGS} ${LUA_CFLAGS} ${CPPFLAGS} -c lua.c -o $@
 
-lua.so: lua.So
-	${CC} ${LDFLAGS} -shared -Wl,-x -o $@ -Wl,-soname,$@ lua.So ${LUA_LIBS}
+lua.so: lua.soo
+	${CC} ${LDFLAGS} ${LDFLAGS_SO} -shared -Wl,-x -o $@ lua.soo ${LUA_LIBS}
 
 lint: _lint
 

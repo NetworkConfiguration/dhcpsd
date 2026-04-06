@@ -43,7 +43,7 @@
 #include "logerr.h"
 #include "service.h"
 
-struct svc_cmd {
+struct srv_cmd {
 	uintptr_t sc_plugin;
 	unsigned int sc_cmd;
 	int sc_errno;
@@ -52,24 +52,23 @@ struct svc_cmd {
 };
 
 static void
-svc_recv(void *arg, unsigned short e)
+srv_recv(void *arg, unsigned short e)
 {
-	struct svc_ctx *sctx = arg;
-	struct svc_result *sr = &sctx->svc_result;
-	struct svc_cmd cmd;
+	struct srv_ctx *sctx = arg;
+	struct srv_result *sr = &sctx->srv_result;
+	struct srv_cmd cmd;
 	struct iovec iov[] = {
 		{
 		    .iov_base = &cmd,
 		    .iov_len = sizeof(cmd),
 		},
-		{ .iov_base = NULL, .iov_len = 0 },
 	};
 	struct msghdr msg = { .msg_iov = iov, .msg_iovlen = 1 };
 	ssize_t nread;
 
 	if (e & ELE_HANGUP) {
 	hangup:
-		eloop_exit(sctx->svc_ctx->ctx_eloop, EXIT_SUCCESS);
+		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_SUCCESS);
 		return;
 	}
 	if (e != ELE_READ) {
@@ -77,7 +76,7 @@ svc_recv(void *arg, unsigned short e)
 		return;
 	}
 
-	nread = recvmsg(sctx->svc_fd, &msg, MSG_WAITALL | MSG_PEEK);
+	nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
 	if (nread == 0)
 		goto hangup;
 	if (nread == -1) {
@@ -89,48 +88,49 @@ svc_recv(void *arg, unsigned short e)
 		return;
 	}
 
-	if (sctx->svc_buflen < cmd.sc_datalen) {
-		void *nbuf = realloc(sctx->svc_buf, cmd.sc_datalen);
-		if (nbuf == NULL) {
-			logerr("%s: realloc", __func__);
+	if (cmd.sc_datalen != 0) {
+		if (sctx->srv_buflen < cmd.sc_datalen) {
+			void *nbuf = realloc(sctx->srv_buf, cmd.sc_datalen);
+			if (nbuf == NULL) {
+				logerr("%s: realloc", __func__);
+				return;
+			}
+			sctx->srv_buf = nbuf;
+			sctx->srv_buflen = cmd.sc_datalen;
+		}
+		iov[0].iov_base = sctx->srv_buf;
+		iov[0].iov_len = cmd.sc_datalen;
+
+		sr->sr_result = cmd.sc_result;
+		sr->sr_errno = cmd.sc_errno;
+
+		nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
+		if (nread == -1) {
+			logerr("%s: recvmsg cmd", __func__);
 			return;
 		}
-		sctx->svc_buf = nbuf;
-		sctx->svc_buflen = cmd.sc_datalen;
-	}
-	iov[1].iov_base = sctx->svc_buf;
-	iov[1].iov_len = sctx->svc_buflen;
-	msg.msg_iovlen = 2;
-
-	sr->sr_result = cmd.sc_result;
-	sr->sr_errno = cmd.sc_errno;
-
-	nread = recvmsg(sctx->svc_fd, &msg, 0);
-	if (nread == -1) {
-		logerr("%s: recvmsg cmd", __func__);
-		return;
-	}
-	if ((size_t)nread != sizeof(cmd) + cmd.sc_datalen) {
-		logerrx("%s: read datalen mismatch: %zd != %zd", __func__,
-		    nread, sizeof(cmd) + cmd.sc_datalen);
-		return;
+		if ((size_t)nread != cmd.sc_datalen) {
+			logerrx("%s: read datalen mismatch: %zd != %zd",
+			    __func__, nread, sizeof(cmd) + cmd.sc_datalen);
+			return;
+		}
 	}
 
 	sr->sr_datalen = cmd.sc_datalen;
-	sr->sr_data = sr->sr_datalen != 0 ? sctx->svc_buf : NULL;
+	sr->sr_data = sr->sr_datalen != 0 ? sctx->srv_buf : NULL;
 
 	/* We are either a dispatcher for the helper, or a blocking loop for a
 	 * response */
-	if (sctx->svc_dispatch != NULL)
-		sctx->svc_dispatch(sctx, (struct plugin *)cmd.sc_plugin,
-		    cmd.sc_cmd, sctx->svc_buf, cmd.sc_datalen);
+	if (sctx->srv_dispatch != NULL)
+		sctx->srv_dispatch(sctx, (struct plugin *)cmd.sc_plugin,
+		    cmd.sc_cmd, sctx->srv_buf, cmd.sc_datalen);
 }
 
 ssize_t
-svc_sendv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
+srv_sendv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
     ssize_t result, struct iovec *iov, int iovlen)
 {
-	struct svc_cmd sc = {
+	struct srv_cmd sc = {
 		.sc_plugin = (uintptr_t)p,
 		.sc_cmd = cmd,
 		.sc_result = result,
@@ -160,37 +160,37 @@ svc_sendv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 		sc.sc_datalen += iov[i].iov_len;
 	}
 
-	ssize_t err = sendmsg(sctx->svc_fd, &msg, MSG_EOR);
+	ssize_t err = sendmsg(sctx->srv_fd, &msg, 0);
 	return err;
 }
 
 ssize_t
-svc_send(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
+srv_send(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
     ssize_t result, const void *data, size_t len)
 {
 	struct iovec iov[] = {
 		{ .iov_base = UNCONST(data), .iov_len = len },
 	};
 
-	return svc_sendv(sctx, p, cmd, result, iov, len == 0 ? 0 : 1);
+	return srv_sendv(sctx, p, cmd, result, iov, len == 0 ? 0 : 1);
 }
 
 int
-svc_runv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
+srv_runv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
     struct iovec *iov, int iovlen, ssize_t *res, void **rdata, size_t *rlen)
 {
-	struct svc_result *result = &sctx->svc_result;
+	struct srv_result *result = &sctx->srv_result;
 	int events;
 
-	if (svc_sendv(sctx, p, cmd, 0, iov, iovlen) == -1) {
-		logerr("%s: svc_write", __func__);
+	if (srv_sendv(sctx, p, cmd, 0, iov, iovlen) == -1) {
+		logerr("%s: srv_write", __func__);
 		return -1;
 	}
 
-	events = eloop_waitfd(sctx->svc_fd);
+	events = eloop_waitfd(sctx->srv_fd);
 	if (events == -1)
 		return -1;
-	svc_recv(sctx, (unsigned short)events);
+	srv_recv(sctx, (unsigned short)events);
 
 	if (result->sr_result == -1)
 		errno = result->sr_errno;
@@ -204,22 +204,34 @@ svc_runv(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 }
 
 int
-svc_run(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
+srv_run(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
     const void *data, size_t len, ssize_t *res, void **rdata, size_t *rlen)
 {
 	struct iovec iov[] = {
 		{ .iov_base = UNCONST(data), .iov_len = len },
 	};
 
-	return svc_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
+	return srv_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
 }
 
-struct svc_ctx *
-svc_init(struct ctx *ctx, const char *name,
-    ssize_t (*dispatch)(struct svc_ctx *, struct plugin *, unsigned int,
+int
+svc_run(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
+    const void *data, size_t len, ssize_t *res, void **rdata, size_t *rlen)
+{
+	struct iovec iov[] = {
+		{ .iov_base = UNCONST(data), .iov_len = len },
+	};
+
+	loginfo("SVC RUN");
+	return srv_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
+}
+
+struct srv_ctx *
+srv_init(struct ctx *ctx, const char *name,
+    ssize_t (*dispatch)(struct srv_ctx *, struct plugin *, unsigned int,
 	const void *, size_t))
 {
-	struct svc_ctx *sctx;
+	struct srv_ctx *sctx;
 	int fdset[2], fd;
 	pid_t pid;
 	unsigned int logopts;
@@ -230,19 +242,18 @@ svc_init(struct ctx *ctx, const char *name,
 		return NULL;
 	}
 
-	sctx->svc_ctx = ctx;
-	sctx->svc_fd = -1;
-	sctx->svc_dispatch = NULL;
+	sctx->srv_ctx = ctx;
+	sctx->srv_fd = -1;
+	sctx->srv_dispatch = NULL;
 
-	sctx->svc_buflen = 1024;
-	sctx->svc_buf = malloc(sctx->svc_buflen);
-	if (sctx->svc_buf == NULL) {
+	sctx->srv_buflen = 1024;
+	sctx->srv_buf = malloc(sctx->srv_buflen);
+	if (sctx->srv_buf == NULL) {
 		logerr("%s: malloc", __func__);
 		goto error;
 	}
 
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK,
-		0, fdset) == -1) {
+	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CXNB, 0, fdset) == -1) {
 		logerr("%s: socketpair", __func__);
 		goto error;
 	}
@@ -251,15 +262,13 @@ svc_init(struct ctx *ctx, const char *name,
 	switch (pid) {
 	case -1:
 		logerr("%s: fork", __func__);
-		close(fdset[0]);
-		close(fdset[1]);
 		goto error;
 	case 0:
-		sctx->svc_fd = fdset[1];
+		sctx->srv_fd = fdset[1];
 		close(fdset[0]);
 		break;
 	default:
-		sctx->svc_fd = fdset[0];
+		sctx->srv_fd = fdset[0];
 		close(fdset[1]);
 		logdebugx("service: spawned %s on pid %ld", name, (long)pid);
 		return sctx;
@@ -267,14 +276,14 @@ svc_init(struct ctx *ctx, const char *name,
 
 	ctx->ctx_options &= ~DHCPSD_MAIN;
 	ctx->ctx_options |= DHCPSD_UNPRIV | DHCPSD_RUN;
-	sctx->svc_dispatch = dispatch;
+	sctx->srv_dispatch = dispatch;
 
 	if (eloop_forked(ctx->ctx_eloop, ELF_KEEP_SIGNALS) == -1) {
 		logerr("%s: eloop_forked", __func__);
 		goto error;
 	}
 
-	if (eloop_event_add(ctx->ctx_eloop, sctx->svc_fd, ELE_READ, svc_recv,
+	if (eloop_event_add(ctx->ctx_eloop, sctx->srv_fd, ELE_READ, srv_recv,
 		sctx) == -1) {
 		logerr("%s: eloop_event_add", __func__);
 		goto error;
@@ -306,18 +315,18 @@ svc_init(struct ctx *ctx, const char *name,
 	return sctx;
 
 error:
-	svc_free(sctx);
+	srv_free(sctx);
 	return NULL;
 }
 
 void
-svc_free(struct svc_ctx *ctx)
+srv_free(struct srv_ctx *ctx)
 {
 	if (ctx == NULL)
 		return;
 
-	if (ctx->svc_fd != -1)
-		close(ctx->svc_fd);
-	free(ctx->svc_buf);
+	if (ctx->srv_fd != -1)
+		close(ctx->srv_fd);
+	free(ctx->srv_buf);
 	free(ctx);
 }
