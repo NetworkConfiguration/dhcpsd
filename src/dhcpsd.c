@@ -129,7 +129,14 @@ dhcpsd_dropperms(int do_chroot)
 	UNUSED(do_chroot);
 #endif
 
-	if (initgroups(DHCPSD_USER, (int)pw->pw_gid) == -1 ||
+/* Avoid a compile warnings on Darwin. */
+#ifdef __APPLE__
+#define INITGROUPS_GID(gid) (int)(gid)
+#else
+#define INITGROUPS_GID(gid) (gid)
+#endif
+
+	if (initgroups(DHCPSD_USER, INITGROUPS_GID(pw->pw_gid)) == -1 ||
 	    setgid(pw->pw_gid) == -1 || setuid(pw->pw_uid) == -1) {
 		logerr("%s: error dropping privileges", __func__);
 		return -1;
@@ -279,9 +286,8 @@ dhcpsd_send_launcher(struct ctx *ctx, int exit_code)
 {
 	if (ctx->ctx_fork_fd == -1)
 		return;
-	if (send(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), MSG_EOR) ==
-	    -1)
-		logerr("%s: sendmsg", __func__);
+	if (send(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), 0) == -1)
+		logerr("%s: send", __func__);
 	close(ctx->ctx_fork_fd);
 	ctx->ctx_fork_fd = -1;
 }
