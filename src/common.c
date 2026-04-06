@@ -465,27 +465,31 @@ sa_pton(struct sockaddr *sa, const char *src)
 static int
 xsetfd(int fd, int flags)
 {
-	int xflags, oflags;
-
-	oflags = fcntl(fd, F_GETFD);
-	if (oflags == -1)
-		return -1;
-
-	xflags = oflags;
+	int oflags;
 
 #ifndef HAVE_SOCK_CLOEXEC
-	if (flags & SOCK_CLOEXEC)
-		xflags |= FD_CLOEXEC;
+	if (flags & SOCK_CLOEXEC) {
+		oflags = fcntl(fd, F_GETFD);
+		if (oflags == -1)
+			return -1;
+		if (!(oflags & FD_CLOEXEC) &&
+		    fcntl(fd, F_SETFD, oflags | O_NONBLOCK) == -1)
+			return -1;
+	}
 #endif
+
 #ifndef HAVE_SOCK_NONBLOCK
-	if (flags & SOCK_NONBLOCK)
-		xflags |= O_NONBLOCK;
+	if (flags & SOCK_NONBLOCK) {
+		oflags = fcntl(fd, F_GETFL);
+		if (oflags == -1)
+			return -1;
+		if (!(oflags & O_NONBLOCK) &&
+		    fcntl(fd, F_SETFL, oflags | O_NONBLOCK) == -1)
+			return -1;
+	}
 #endif
 
-	if (xflags == oflags)
-		return 0;
-
-	return fcntl(fd, F_SETFD, xflags);
+	return 0;
 }
 #endif
 
