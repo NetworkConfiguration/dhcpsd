@@ -271,7 +271,7 @@ lua_run_lookup_hostname(struct plugin *p, struct srv_ctx *sctx,
 	err = 0;
 
 out:
-	return srv_send(sctx, p, L_LOOKUPADDR, err, hname, hnamelen);
+	return srv_send(sctx, p, L_LOOKUPHOSTNAME, err, hname, hnamelen);
 }
 
 static ssize_t
