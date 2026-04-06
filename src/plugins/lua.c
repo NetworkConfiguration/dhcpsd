@@ -282,16 +282,32 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 	struct lua_ctx *l = p->p_pctx;
 	lua_State *L = l->L;
 	const char *addr;
+	char *datap = UNCONST(data);
+	size_t hostname_len;
 	char hostname[DHCP_HOSTNAME_LEN];
-	memcpy(hostname, data, sizeof(hostname));
+	char chaddr[sizeof(((struct bootp *)0)->chaddr) * 3];
+
+	if (len < sizeof(hostname_len)) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(&hostname_len, datap, sizeof(hostname_len));
+	datap += sizeof(hostname_len);
+	len -= sizeof(hostname_len);
+
+	if (len < hostname_len) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(hostname, datap, hostname_len);
+	datap += hostname_len;
+	len -= hostname_len;
+
 	/* Aligns bootp */
-	memmove(UNCONST(data), (const char *)data + sizeof(hostname),
-	    len - sizeof(hostname));
-	len -= sizeof(hostname);
+	memmove(UNCONST(data), datap, len);
 
 	l->l_req = data;
 	l->l_reqlen = len;
-	char chaddr[l->l_req->hlen * 3];
 	struct sockaddr_in sin = {
 		.sin_family = AF_INET,
 #ifdef BSD
@@ -902,9 +918,13 @@ static int
 lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
     const char *hostname, const struct bootp *bootp, size_t bootplen)
 {
-	char hname[DHCP_HOSTNAME_LEN] = { '\0' };
+	size_t hostname_len = hostname ? strlen(hostname) + 1 : 0;
 	struct iovec iov[] = {
-		{ .iov_base = hname, .iov_len = sizeof(hname) },
+		{
+		    .iov_base = &hostname_len,
+		    .iov_len = sizeof(hostname_len),
+		},
+		{ .iov_base = UNCONST(hostname), .iov_len = hostname_len },
 		{ .iov_base = UNCONST(bootp), .iov_len = bootplen },
 	};
 	ssize_t err, result;
@@ -912,8 +932,6 @@ lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
 	uint8_t *dp;
 	size_t len;
 
-	if (hostname != NULL)
-		strlcpy(hname, hostname, sizeof(hname));
 	err = srv_runv(p->p_ctx->ctx_unpriv, p, L_LOOKUPADDR, iov,
 	    ARRAYCOUNT(iov), &result, &data, &len);
 
