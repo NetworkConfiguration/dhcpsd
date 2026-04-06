@@ -45,7 +45,6 @@
 #include "unpriv.h"
 
 #define U_GETADDRINFO 1
-#define U_GETADDRINFO 1
 
 struct unpriv_addrinfo {
 	int u_ai_flags;
