@@ -286,28 +286,6 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 	size_t hostname_len;
 	char hostname[DHCP_HOSTNAME_LEN];
 	char chaddr[sizeof(((struct bootp *)0)->chaddr) * 3];
-
-	if (len < sizeof(hostname_len)) {
-		errno = EINVAL;
-		goto out;
-	}
-	memcpy(&hostname_len, datap, sizeof(hostname_len));
-	datap += sizeof(hostname_len);
-	len -= sizeof(hostname_len);
-
-	if (len < hostname_len) {
-		errno = EINVAL;
-		goto out;
-	}
-	memcpy(hostname, datap, hostname_len);
-	datap += hostname_len;
-	len -= hostname_len;
-
-	/* Aligns bootp */
-	memmove(UNCONST(data), datap, len);
-
-	l->l_req = data;
-	l->l_reqlen = len;
 	struct sockaddr_in sin = {
 		.sin_family = AF_INET,
 #ifdef BSD
@@ -320,6 +298,35 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 		{ .iov_base = &ltime, .iov_len = sizeof(ltime) },
 		{ .iov_base = &sin, .iov_len = sizeof(sin) },
 	};
+
+	if (len < sizeof(hostname_len)) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(&hostname_len, datap, sizeof(hostname_len));
+	datap += sizeof(hostname_len);
+	len -= sizeof(hostname_len);
+
+	if (hostname_len != 0) {
+		if (len < hostname_len) {
+			errno = EINVAL;
+			goto out;
+		}
+		memcpy(hostname, datap, hostname_len);
+		datap += hostname_len;
+		len -= hostname_len;
+	} else
+		hostname[0] = '\0';
+
+	if (len < sizeof(*l->l_req)) {
+		errno = EINVAL;
+		goto out;
+	}
+	/* Aligns bootp */
+	memmove(UNCONST(data), datap, len);
+
+	l->l_req = data;
+	l->l_reqlen = len;
 
 	lua_pop(L, lua_gettop(L));
 
