@@ -222,7 +222,6 @@ svc_run(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 		{ .iov_base = UNCONST(data), .iov_len = len },
 	};
 
-	loginfo("SVC RUN");
 	return srv_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
 }
 
