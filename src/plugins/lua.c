@@ -39,6 +39,7 @@
 #include <lualib.h>
 #include <netdb.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -526,7 +527,7 @@ lua_add_dhcp_uint16(lua_State *L)
 		return 0;
 	}
 
-	u16 = htons(data);
+	u16 = htons((uint16_t)data);
 	DHCP_PUT_U16(&l->l_p, l->l_e, (uint8_t)optn, u16);
 	return 0;
 }
@@ -553,7 +554,7 @@ lua_add_dhcp_uint32(lua_State *L)
 		return 0;
 	}
 
-	u32 = htonl(data);
+	u32 = htonl((uint32_t)data);
 	DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, u32);
 	return 0;
 }
