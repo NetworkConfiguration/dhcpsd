@@ -64,8 +64,6 @@ ssize_t srv_sendv(struct srv_ctx *, struct plugin *, unsigned int, ssize_t,
     struct iovec *, int);
 int srv_run(struct srv_ctx *, struct plugin *, unsigned int, const void *,
     size_t, ssize_t *, void **, size_t *);
-int svc_run(struct srv_ctx *, struct plugin *, unsigned int, const void *,
-    size_t, ssize_t *, void **, size_t *);
 int srv_runv(struct srv_ctx *, struct plugin *, unsigned int, struct iovec *,
     int, ssize_t *, void **, size_t *);
 

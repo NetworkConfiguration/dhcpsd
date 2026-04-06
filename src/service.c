@@ -214,17 +214,6 @@ srv_run(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 	return srv_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
 }
 
-int
-svc_run(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
-    const void *data, size_t len, ssize_t *res, void **rdata, size_t *rlen)
-{
-	struct iovec iov[] = {
-		{ .iov_base = UNCONST(data), .iov_len = len },
-	};
-
-	return srv_runv(sctx, p, cmd, iov, len == 0 ? 0 : 1, res, rdata, rlen);
-}
-
 struct srv_ctx *
 srv_init(struct ctx *ctx, const char *name,
     ssize_t (*dispatch)(struct srv_ctx *, struct plugin *, unsigned int,
