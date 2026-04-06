@@ -689,7 +689,7 @@ lua_run_expire_lease(struct plugin *p, struct srv_ctx *sctx,
 	char ipbuf[INET_ADDRSTRLEN];
 	const char *ip, *flags;
 
-	if (payloadlen < sizeof(dl)) {
+	if (payloadlen < sizeof(*dl)) {
 		errno = EINVAL;
 		goto out;
 	}
