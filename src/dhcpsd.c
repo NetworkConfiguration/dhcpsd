@@ -204,7 +204,8 @@ dhcpsd_fork(struct ctx *ctx)
 	cap_rights_t rights;
 #endif
 
-	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CXNB, 0, fork_fd) == -1) {
+	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0, fork_fd) ==
+	    -1) {
 		logerr("socketpair");
 		return -1;
 	}

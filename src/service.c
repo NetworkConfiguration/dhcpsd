@@ -101,9 +101,6 @@ srv_recv(void *arg, unsigned short e)
 		iov[0].iov_base = sctx->srv_buf;
 		iov[0].iov_len = cmd.sc_datalen;
 
-		sr->sr_result = cmd.sc_result;
-		sr->sr_errno = cmd.sc_errno;
-
 		nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
 		if (nread == -1) {
 			logerr("%s: recvmsg cmd", __func__);
@@ -116,8 +113,10 @@ srv_recv(void *arg, unsigned short e)
 		}
 	}
 
-	sr->sr_datalen = cmd.sc_datalen;
+	sr->sr_result = cmd.sc_result;
+	sr->sr_errno = cmd.sc_errno;
 	sr->sr_data = sr->sr_datalen != 0 ? sctx->srv_buf : NULL;
+	sr->sr_datalen = cmd.sc_datalen;
 
 	/* We are either a dispatcher for the helper, or a blocking loop for a
 	 * response */
@@ -241,7 +240,7 @@ srv_init(struct ctx *ctx, const char *name,
 		goto error;
 	}
 
-	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CXNB, 0, fdset) == -1) {
+	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0, fdset) == -1) {
 		logerr("%s: socketpair", __func__);
 		goto error;
 	}
