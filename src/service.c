@@ -171,6 +171,12 @@ srv_sendv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 	}
 
 	ssize_t err = sendmsg(sctx->srv_fd, &msg, 0);
+	if (err != -1 && (size_t)err != sizeof(sc) + sc.sc_datalen) {
+		logerrx(("%s: partial write (%zd < %zu)"), __func__, err,
+		    sizeof(sc) + sc.sc_datalen);
+		errno = ENOBUFS;
+		return -1;
+	}
 	return err;
 }
 
@@ -261,6 +267,8 @@ srv_init(struct ctx *ctx, const char *name,
 	switch (pid) {
 	case -1:
 		logerr("%s: fork", __func__);
+		close(fdset[0]);
+		close(fdset[1]);
 		goto error;
 	case 0:
 		sctx->srv_fd = fdset[1];
