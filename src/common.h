@@ -134,4 +134,5 @@ hash_fnv1a(const void *key, size_t len)
 #define SOCK_CXNB SOCK_CLOEXEC | SOCK_NONBLOCK
 #endif
 int xsocket(int, int, int);
+int xsocketpair(int, int, int, int[2]);
 #endif

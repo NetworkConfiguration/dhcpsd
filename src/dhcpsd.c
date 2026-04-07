@@ -129,7 +129,14 @@ dhcpsd_dropperms(int do_chroot)
 	UNUSED(do_chroot);
 #endif
 
-	if (initgroups(DHCPSD_USER, pw->pw_gid) == -1 ||
+/* Avoid a compile warnings on Darwin. */
+#ifdef __APPLE__
+#define INITGROUPS_GID(gid) (int)(gid)
+#else
+#define INITGROUPS_GID(gid) (gid)
+#endif
+
+	if (initgroups(DHCPSD_USER, INITGROUPS_GID(pw->pw_gid)) == -1 ||
 	    setgid(pw->pw_gid) == -1 || setuid(pw->pw_uid) == -1) {
 		logerr("%s: error dropping privileges", __func__);
 		return -1;
@@ -197,8 +204,8 @@ dhcpsd_fork(struct ctx *ctx)
 	cap_rights_t rights;
 #endif
 
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK,
-		0, fork_fd) == -1) {
+	if (xsocketpair(PF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0, fork_fd) ==
+	    -1) {
 		logerr("socketpair");
 		return -1;
 	}
@@ -250,7 +257,7 @@ dhcpsd_fork(struct ctx *ctx)
 		}
 		break;
 	default:
-#ifdef BSD
+#ifdef HAVE_SETPROCTITLE
 		setproctitle("[launcher]");
 #endif
 		ctx->ctx_options &= ~DHCPSD_MAIN;
@@ -280,9 +287,8 @@ dhcpsd_send_launcher(struct ctx *ctx, int exit_code)
 {
 	if (ctx->ctx_fork_fd == -1)
 		return;
-	if (send(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), MSG_EOR) ==
-	    -1)
-		logerr("%s: sendmsg", __func__);
+	if (send(ctx->ctx_fork_fd, &exit_code, sizeof(exit_code), 0) == -1)
+		logerr("%s: send", __func__);
 	close(ctx->ctx_fork_fd);
 	ctx->ctx_fork_fd = -1;
 }
@@ -489,7 +495,7 @@ main(int argc, char **argv)
 	if (dhcpsd_dropperms(1) == -1)
 		goto exit;
 
-#ifdef BSD
+#ifdef HAVE_SETPROCTITLE
 	setproctitle("DHCP Server Daemon");
 #endif
 
@@ -606,7 +612,7 @@ exit:
 	dhcp_free(ctx.ctx_dhcp);
 	eloop_free(ctx.ctx_eloop);
 	ctx.ctx_eloop = NULL;
-	svc_free(ctx.ctx_unpriv);
+	srv_free(ctx.ctx_unpriv);
 #ifdef HAVE_CASPER
 	if (ctx.ctx_capnet)
 		cap_close(ctx.ctx_capnet);

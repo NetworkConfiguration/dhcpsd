@@ -3,8 +3,9 @@ config.mk
 config.h
 config.log
 
+*.dSYM/**
 *.o
-*.So
+*.soo
 *.so
 
 *.tar.xz

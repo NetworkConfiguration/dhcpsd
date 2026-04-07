@@ -45,7 +45,6 @@
 #include "unpriv.h"
 
 #define U_GETADDRINFO 1
-#define U_GETADDRINFO 1
 
 struct unpriv_addrinfo {
 	int u_ai_flags;
@@ -64,7 +63,7 @@ struct unpriv_getaddrinfo {
 };
 
 int
-unpriv_getaddrinfo(struct svc_ctx *ctx, const char *hostname,
+unpriv_getaddrinfo(struct srv_ctx *ctx, const char *hostname,
     const char *servname, struct addrinfo *hints,
     struct addrinfo **restrict res)
 {
@@ -94,7 +93,7 @@ unpriv_getaddrinfo(struct svc_ctx *ctx, const char *hostname,
 		u_gai.u_gai_hints.u_ai_protocol = hints->ai_protocol;
 	}
 
-	err = svc_run(ctx, 0, U_GETADDRINFO, &u_gai, sizeof(u_gai), &result,
+	err = srv_run(ctx, 0, U_GETADDRINFO, &u_gai, sizeof(u_gai), &result,
 	    &rdata, &rdata_len);
 	if (err == -1)
 		return -1;
@@ -155,7 +154,7 @@ err:
 }
 
 static ssize_t
-unpriv_dispatch(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
+unpriv_dispatch(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
     const void *data, size_t len)
 {
 	const struct unpriv_getaddrinfo *u_gai = data;
@@ -227,7 +226,7 @@ unpriv_dispatch(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 
 	freeaddrinfo(ai_result);
 
-	res = svc_send(sctx, NULL, U_GETADDRINFO, err, reply,
+	res = srv_send(sctx, NULL, U_GETADDRINFO, err, reply,
 	    sizeof(*reply) * n);
 	free(reply);
 	return res;
@@ -235,15 +234,15 @@ unpriv_dispatch(struct svc_ctx *sctx, struct plugin *p, unsigned int cmd,
 err:
 	freeaddrinfo(ai_result);
 	free(reply);
-	return svc_send(sctx, NULL, cmd, err, NULL, 0);
+	return srv_send(sctx, NULL, cmd, err, NULL, 0);
 }
 
-struct svc_ctx *
+struct srv_ctx *
 unpriv_init(struct ctx *ctx)
 {
 	if (ctx->ctx_unpriv != NULL)
 		goto out;
-	ctx->ctx_unpriv = svc_init(ctx, "unprivileged helper", unpriv_dispatch);
+	ctx->ctx_unpriv = srv_init(ctx, "unprivileged helper", unpriv_dispatch);
 
 	if (ctx->ctx_unpriv == NULL)
 		return NULL;
@@ -251,7 +250,7 @@ unpriv_init(struct ctx *ctx)
 	if (ctx->ctx_options & DHCPSD_RUN) {
 		ctx->ctx_options |= DHCPSD_UNPRIV;
 		dhcpsd_dropperms(0);
-#ifdef BSD
+#ifdef HAVE_SETPROCTITLE
 		setproctitle("unprivileged helper");
 #endif
 	}

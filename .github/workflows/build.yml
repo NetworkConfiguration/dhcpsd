@@ -13,11 +13,11 @@ jobs:
   ubuntu:
     strategy:
       matrix:
-        os: [ ubuntu-latest, ubuntu-22.04 ]
+        os: [ ubuntu-latest ]
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
     
     - name: Install Lua
       run: |
@@ -30,7 +30,29 @@ jobs:
     - name: Build
       run: make
 
+  macos:
+    strategy:
+      matrix:
+        os: [ macos-15, macos-26 ]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Lua
+      run: |
+        brew install lua
+
+    - name: Configure
+      run: ./configure
+
+    - name: Build
+      run: make
+
+# The BSDs are currently broken on github
+
   openbsd:
+    if: false
     runs-on: ubuntu-latest
     steps:
     - name: Bootstrap OpenBSD-latest
@@ -50,6 +72,7 @@ jobs:
         make
 
   freebsd:
+    if: false
     runs-on: ubuntu-latest
     steps:
     - name: Bootstrap FreeBSD-latest
@@ -69,6 +92,7 @@ jobs:
         make
 
   netbsd:
+    if: false
     runs-on: ubuntu-latest
     steps:
     - name: Bootstrap NetBSD-latest

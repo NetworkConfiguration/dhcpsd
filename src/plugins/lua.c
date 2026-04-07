@@ -39,6 +39,7 @@
 #include <lualib.h>
 #include <netdb.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,7 +85,7 @@ static struct lua_ctx lua_ctx;
 #define L_EXPIRELEASE	 6U
 
 static ssize_t
-lua_run_configure_pools(struct plugin *p, struct svc_ctx *sctx,
+lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
     const char *ifname, size_t ifnamelen)
 {
 	struct lua_ctx *l = p->p_pctx;
@@ -222,14 +223,14 @@ lua_run_configure_pools(struct plugin *p, struct svc_ctx *sctx,
 	err = (ssize_t)npools;
 
 out:
-	err = svc_send(sctx, p, L_CONFIGUREPOOLS, err, pools,
+	err = srv_send(sctx, p, L_CONFIGUREPOOLS, err, pools,
 	    sizeof(*pool) * npools);
 	free(pools);
 	return err;
 }
 
 static ssize_t
-lua_run_lookup_hostname(struct plugin *p, struct svc_ctx *sctx,
+lua_run_lookup_hostname(struct plugin *p, struct srv_ctx *sctx,
     const void *data, size_t len)
 {
 	ssize_t err = -1;
@@ -270,27 +271,21 @@ lua_run_lookup_hostname(struct plugin *p, struct svc_ctx *sctx,
 	err = 0;
 
 out:
-	return svc_send(sctx, p, L_LOOKUPADDR, err, hname, hnamelen);
+	return srv_send(sctx, p, L_LOOKUPHOSTNAME, err, hname, hnamelen);
 }
 
 static ssize_t
-lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
+lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
     size_t len)
 {
 	ssize_t err = -1;
 	struct lua_ctx *l = p->p_pctx;
 	lua_State *L = l->L;
 	const char *addr;
+	char *datap = UNCONST(data);
+	size_t hostname_len;
 	char hostname[DHCP_HOSTNAME_LEN];
-	memcpy(hostname, data, sizeof(hostname));
-	/* Aligns bootp */
-	memmove(UNCONST(data), (const char *)data + sizeof(hostname),
-	    len - sizeof(hostname));
-	len -= sizeof(hostname);
-
-	l->l_req = data;
-	l->l_reqlen = len;
-	char chaddr[l->l_req->hlen * 3];
+	char chaddr[sizeof(((struct bootp *)0)->chaddr) * 3];
 	struct sockaddr_in sin = {
 		.sin_family = AF_INET,
 #ifdef BSD
@@ -303,6 +298,35 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 		{ .iov_base = &ltime, .iov_len = sizeof(ltime) },
 		{ .iov_base = &sin, .iov_len = sizeof(sin) },
 	};
+
+	if (len < sizeof(hostname_len)) {
+		errno = EINVAL;
+		goto out;
+	}
+	memcpy(&hostname_len, datap, sizeof(hostname_len));
+	datap += sizeof(hostname_len);
+	len -= sizeof(hostname_len);
+
+	if (hostname_len != 0) {
+		if (len < hostname_len || hostname_len > sizeof(hostname)) {
+			errno = EINVAL;
+			goto out;
+		}
+		memcpy(hostname, datap, hostname_len);
+		datap += hostname_len;
+		len -= hostname_len;
+	} else
+		hostname[0] = '\0';
+
+	if (len < sizeof(*l->l_req)) {
+		errno = EINVAL;
+		goto out;
+	}
+	/* Aligns bootp */
+	memmove(UNCONST(data), datap, len);
+
+	l->l_req = data;
+	l->l_reqlen = len;
 
 	lua_pop(L, lua_gettop(L));
 
@@ -347,7 +371,7 @@ lua_run_lookup_addr(struct plugin *p, struct svc_ctx *sctx, const void *data,
 	err = 0;
 
 out:
-	return svc_sendv(sctx, p, L_LOOKUPADDR, err, iov, ARRAYCOUNT(iov));
+	return srv_sendv(sctx, p, L_LOOKUPADDR, err, iov, ARRAYCOUNT(iov));
 }
 
 static int
@@ -526,7 +550,7 @@ lua_add_dhcp_uint16(lua_State *L)
 		return 0;
 	}
 
-	u16 = htons(data);
+	u16 = htons((uint16_t)data);
 	DHCP_PUT_U16(&l->l_p, l->l_e, (uint8_t)optn, u16);
 	return 0;
 }
@@ -553,7 +577,7 @@ lua_add_dhcp_uint32(lua_State *L)
 		return 0;
 	}
 
-	u32 = htonl(data);
+	u32 = htonl((uint32_t)data);
 	DHCP_PUT_U32(&l->l_p, l->l_e, (uint8_t)optn, u32);
 	return 0;
 }
@@ -613,7 +637,7 @@ lua_add_dhcp_domain(lua_State *L)
 }
 
 static ssize_t
-lua_run_add_dhcp_options(struct plugin *p, struct svc_ctx *sctx,
+lua_run_add_dhcp_options(struct plugin *p, struct srv_ctx *sctx,
     const void *dhcp, size_t dhcplen)
 {
 	struct lua_ctx *l = p->p_pctx;
@@ -655,13 +679,13 @@ lua_run_add_dhcp_options(struct plugin *p, struct svc_ctx *sctx,
 	ldo->ldo_optslen = (size_t)(l->l_p - ldo->ldo_opts);
 
 out:
-	return svc_send(sctx, p, L_ADDDHCPOPTIONS, err, &l->l_dhcp,
+	return srv_send(sctx, p, L_ADDDHCPOPTIONS, err, &l->l_dhcp,
 	    offsetof(struct lua_dhcp_opts, ldo_optslen) +
 		sizeof(l->l_dhcp.ldo_optslen) + l->l_dhcp.ldo_optslen);
 }
 
 static ssize_t
-lua_run_expire_lease(struct plugin *p, struct svc_ctx *sctx,
+lua_run_expire_lease(struct plugin *p, struct srv_ctx *sctx,
     const void *payload, size_t payloadlen)
 {
 	const struct dhcp_lease *dl = payload;
@@ -672,7 +696,7 @@ lua_run_expire_lease(struct plugin *p, struct svc_ctx *sctx,
 	char ipbuf[INET_ADDRSTRLEN];
 	const char *ip, *flags;
 
-	if (payloadlen < sizeof(dl)) {
+	if (payloadlen < sizeof(*dl)) {
 		errno = EINVAL;
 		goto out;
 	}
@@ -712,11 +736,11 @@ lua_run_expire_lease(struct plugin *p, struct svc_ctx *sctx,
 		err = (ssize_t)lua_tointeger(L, -1);
 
 out:
-	return svc_send(sctx, p, L_EXPIRELEASE, err, NULL, 0);
+	return srv_send(sctx, p, L_EXPIRELEASE, err, NULL, 0);
 }
 
 static ssize_t
-lua_run_commit_lease(struct plugin *p, struct svc_ctx *sctx,
+lua_run_commit_lease(struct plugin *p, struct srv_ctx *sctx,
     const void *payload, size_t payloadlen)
 {
 	struct dhcp_lease dl;
@@ -796,7 +820,7 @@ lua_run_commit_lease(struct plugin *p, struct svc_ctx *sctx,
 		err = (ssize_t)lua_tointeger(L, -1);
 
 out:
-	return svc_send(sctx, p, L_COMMITLEASE, err, &f, sizeof(f));
+	return srv_send(sctx, p, L_COMMITLEASE, err, &f, sizeof(f));
 }
 
 static int
@@ -880,7 +904,7 @@ lua_lookup_hostname(struct plugin *p, char *hostname, const struct bootp *bootp,
 	void *hname;
 	size_t hnamelen;
 
-	err = svc_run(p->p_ctx->ctx_unpriv, p, L_LOOKUPHOSTNAME, bootp,
+	err = srv_run(p->p_ctx->ctx_unpriv, p, L_LOOKUPHOSTNAME, bootp,
 	    bootplen, &result, &hname, &hnamelen);
 
 	if (err == -1 || result == -1)
@@ -901,9 +925,13 @@ static int
 lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
     const char *hostname, const struct bootp *bootp, size_t bootplen)
 {
-	char hname[DHCP_HOSTNAME_LEN] = { '\0' };
+	size_t hostname_len = hostname ? strlen(hostname) + 1 : 0;
 	struct iovec iov[] = {
-		{ .iov_base = hname, .iov_len = sizeof(hname) },
+		{
+		    .iov_base = &hostname_len,
+		    .iov_len = sizeof(hostname_len),
+		},
+		{ .iov_base = UNCONST(hostname), .iov_len = hostname_len },
 		{ .iov_base = UNCONST(bootp), .iov_len = bootplen },
 	};
 	ssize_t err, result;
@@ -911,9 +939,7 @@ lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
 	uint8_t *dp;
 	size_t len;
 
-	if (hostname != NULL)
-		strlcpy(hname, hostname, sizeof(hname));
-	err = svc_runv(p->p_ctx->ctx_unpriv, p, L_LOOKUPADDR, iov,
+	err = srv_runv(p->p_ctx->ctx_unpriv, p, L_LOOKUPADDR, iov,
 	    ARRAYCOUNT(iov), &result, &data, &len);
 
 	if (err == -1 || result == -1)
@@ -937,7 +963,7 @@ lua_configure_pools(struct plugin *p, struct interface *ifp)
 	size_t poolslen, npools;
 	struct dhcp_pool *pool;
 
-	err = svc_run(p->p_ctx->ctx_unpriv, p, L_CONFIGUREPOOLS, ifp->if_name,
+	err = srv_run(p->p_ctx->ctx_unpriv, p, L_CONFIGUREPOOLS, ifp->if_name,
 	    strlen(ifp->if_name) + 1, &result, &_pools, &poolslen);
 	if (err == -1 || result == -1)
 		return -1;
@@ -966,7 +992,7 @@ lua_add_dhcp_options(struct plugin *plug, struct bootp *bootp, uint8_t **p,
 	size_t optslen;
 	struct lua_dhcp_opts *ldo;
 
-	err = svc_run(plug->p_ctx->ctx_unpriv, plug, L_ADDDHCPOPTIONS, req,
+	err = srv_run(plug->p_ctx->ctx_unpriv, plug, L_ADDDHCPOPTIONS, req,
 	    reqlen, &result, &opts, &optslen);
 	if (err == -1 || result == -1)
 		return -1;
@@ -1006,7 +1032,7 @@ lua_commit_lease(struct plugin *p, const struct dhcp_lease *lease,
 	unsigned int *f = NULL;
 	size_t flen;
 
-	err = svc_runv(p->p_ctx->ctx_unpriv, p, L_COMMITLEASE, iov,
+	err = srv_runv(p->p_ctx->ctx_unpriv, p, L_COMMITLEASE, iov,
 	    ARRAYCOUNT(iov), &result, (void *)&f, &flen);
 	if (err == -1)
 		return -1;
@@ -1020,7 +1046,7 @@ lua_expire_lease(struct plugin *p, const struct dhcp_lease *lease)
 {
 	ssize_t err, result;
 
-	err = svc_run(p->p_ctx->ctx_unpriv, p, L_EXPIRELEASE, lease,
+	err = srv_run(p->p_ctx->ctx_unpriv, p, L_EXPIRELEASE, lease,
 	    sizeof(*lease), &result, NULL, NULL);
 	if (err == -1)
 		return -1;
@@ -1028,7 +1054,7 @@ lua_expire_lease(struct plugin *p, const struct dhcp_lease *lease)
 }
 
 static ssize_t
-lua_dispatch(struct plugin *p, struct svc_ctx *sctx, unsigned int cmd,
+lua_dispatch(struct plugin *p, struct srv_ctx *sctx, unsigned int cmd,
     const void *data, size_t len)
 {
 	switch (cmd) {

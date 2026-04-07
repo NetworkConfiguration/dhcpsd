@@ -49,7 +49,6 @@
 #include "common.h"
 #include "dhcp.h"
 #include "dhcpsd.h"
-#include "logerr.h"
 #include "plugin.h"
 #include "service.h"
 
@@ -60,7 +59,7 @@ static const char ethers_description[] =
 #define E_LOOKUPHOSTNAME 1U
 
 static ssize_t
-ethers_run_lookup_hostname(struct plugin *p, struct svc_ctx *sctx,
+ethers_run_lookup_hostname(struct plugin *p, struct srv_ctx *sctx,
     const void *data, size_t datalen)
 {
 	struct ether_addr *ether_addr = (struct ether_addr *)UNCONST(data);
@@ -82,11 +81,11 @@ ethers_run_lookup_hostname(struct plugin *p, struct svc_ctx *sctx,
 	hnamelen = strlen(hname) + 1;
 
 out:
-	return svc_send(sctx, p, E_LOOKUPHOSTNAME, err, hname, hnamelen);
+	return srv_send(sctx, p, E_LOOKUPHOSTNAME, err, hname, hnamelen);
 }
 
 static ssize_t
-ethers_dispatch(struct plugin *p, struct svc_ctx *sctx, unsigned int cmd,
+ethers_dispatch(struct plugin *p, struct srv_ctx *sctx, unsigned int cmd,
     const void *data, size_t len)
 {
 	switch (cmd) {
@@ -113,7 +112,7 @@ ethers_lookup_hostname(struct plugin *p, char *hostname,
 	}
 
 	memcpy(&ea, bootp->chaddr, sizeof(ea));
-	err = svc_run(p->p_ctx->ctx_unpriv, p, E_LOOKUPHOSTNAME, &ea,
+	err = srv_run(p->p_ctx->ctx_unpriv, p, E_LOOKUPHOSTNAME, &ea,
 	    sizeof(ea), &result, &hname, &hnamelen);
 	if (err == -1 || result != 0)
 		return -1;

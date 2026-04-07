@@ -64,12 +64,12 @@ if_learnifaces(struct ctx *ctx)
 	struct ifaddrs *ifa;
 	struct interface *ifp;
 #ifdef AF_LINK
-	const struct sockaddr_dl *sdl;
+	struct sockaddr_dl *sdl;
 #ifdef IFLR_ACTIVE
 	struct if_laddrreq iflr = { .flags = IFLR_PREFIX };
 #endif
 #elif defined(AF_PACKET)
-	const struct sockaddr_ll *sll;
+	struct sockaddr_ll *sll;
 #endif
 
 	for (ifa = ctx->ctx_ifa; ifa; ifa = ifa->ifa_next) {
@@ -84,7 +84,7 @@ if_learnifaces(struct ctx *ctx)
 #endif
 
 #ifdef IFLR_ACTIVE
-		sdl = (const void *)ifa->ifa_addr;
+		sdl = (void *)ifa->ifa_addr;
 
 		/* We need to check for active address */
 		strlcpy(iflr.iflr_name, ifa->ifa_name, sizeof(iflr.iflr_name));
@@ -107,7 +107,7 @@ if_learnifaces(struct ctx *ctx)
 
 #ifdef AF_LINK
 #ifndef IFLR_ACTIVE
-		sdl = (const void *)ifa->ifa_addr;
+		sdl = (void *)ifa->ifa_addr;
 #endif
 
 		switch (sdl->sdl_type) {
@@ -150,22 +150,16 @@ if_learnifaces(struct ctx *ctx)
 		}
 		ifp->if_index = sdl->sdl_index;
 		ifp->if_hwlen = sdl->sdl_alen;
-		if (ifp->if_hwlen != 0) {
-#ifdef CLLADDR
-			memcpy(ifp->if_hwaddr, CLLADDR(sdl), ifp->if_hwlen);
-#else
+		if (ifp->if_hwlen != 0)
 			memcpy(ifp->if_hwaddr, LLADDR(sdl), ifp->if_hwlen);
-#endif
-		}
 #elif defined(AF_PACKET)
-		sll = (const void *)ifa->ifa_addr;
+		sll = (void *)ifa->ifa_addr;
 		ifp->if_index = (unsigned int)sll->sll_ifindex;
 		ifp->if_hwtype = sll->sll_hatype;
 		ifp->if_hwlen = sll->sll_halen;
 		if (ifp->if_hwlen != 0)
 			memcpy(ifp->if_hwaddr, sll->sll_addr, ifp->if_hwlen);
 #endif
-
 		switch (ifp->if_hwtype) {
 		case ARPHRD_ETHER:
 			ifp->if_output = if_ether_output;

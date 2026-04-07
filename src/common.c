@@ -461,12 +461,44 @@ sa_pton(struct sockaddr *sa, const char *src)
 	return inet_pton(sa->sa_family, src, addr);
 }
 
+#if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
+static int
+xsetfd(int fd, int flags)
+{
+	int oflags;
+
+#ifndef HAVE_SOCK_CLOEXEC
+	if (flags & SOCK_CLOEXEC) {
+		oflags = fcntl(fd, F_GETFD);
+		if (oflags == -1)
+			return -1;
+		if (!(oflags & FD_CLOEXEC) &&
+		    fcntl(fd, F_SETFD, oflags | FD_CLOEXEC) == -1)
+			return -1;
+	}
+#endif
+
+#ifndef HAVE_SOCK_NONBLOCK
+	if (flags & SOCK_NONBLOCK) {
+		oflags = fcntl(fd, F_GETFL);
+		if (oflags == -1)
+			return -1;
+		if (!(oflags & O_NONBLOCK) &&
+		    fcntl(fd, F_SETFL, oflags | O_NONBLOCK) == -1)
+			return -1;
+	}
+#endif
+
+	return 0;
+}
+#endif
+
 int
 xsocket(int domain, int type, int protocol)
 {
 	int s;
 #if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
-	int xflags, xtype = type;
+	int xtype = type;
 #endif
 
 #ifndef HAVE_SOCK_CLOEXEC
@@ -481,24 +513,44 @@ xsocket(int domain, int type, int protocol)
 	if ((s = socket(domain, type, protocol)) == -1)
 		return -1;
 
-#ifndef HAVE_SOCK_CLOEXEC
-	if ((xtype & SOCK_CLOEXEC) &&
-	    ((xflags = fcntl(s, F_GETFD)) == -1 ||
-		fcntl(s, F_SETFD, xflags | FD_CLOEXEC) == -1))
-		goto out;
-#endif
-#ifndef HAVE_SOCK_NONBLOCK
-	if ((xtype & SOCK_NONBLOCK) &&
-	    ((xflags = fcntl(s, F_GETFL)) == -1 ||
-		fcntl(s, F_SETFL, xflags | O_NONBLOCK) == -1))
-		goto out;
+#if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
+	if (xtype != type && xsetfd(s, xtype) == -1) {
+		close(s);
+		return -1;
+	}
 #endif
 
 	return s;
+}
+
+int
+xsocketpair(int domain, int type, int protocol, int fdset[2])
+{
+	int s;
+#if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
+	int xtype = type;
+#endif
+
+#ifndef HAVE_SOCK_CLOEXEC
+	if (xtype & SOCK_CLOEXEC)
+		type &= ~SOCK_CLOEXEC;
+#endif
+#ifndef HAVE_SOCK_NONBLOCK
+	if (xtype & SOCK_NONBLOCK)
+		type &= ~SOCK_NONBLOCK;
+#endif
+
+	if ((s = socketpair(domain, type, protocol, fdset)) == -1)
+		return -1;
 
 #if !defined(HAVE_SOCK_CLOEXEC) || !defined(HAVE_SOCK_NONBLOCK)
-out:
-	close(s);
-	return -1;
+	if (xtype != type &&
+	    (xsetfd(fdset[0], xtype) == -1 || xsetfd(fdset[1], xtype) == -1)) {
+		close(fdset[0]);
+		close(fdset[1]);
+		return -1;
+	}
 #endif
+
+	return s;
 }

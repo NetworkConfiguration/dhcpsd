@@ -35,7 +35,7 @@ struct ifaddrs;
 struct dhcp_ctx;
 struct eloop;
 struct if_head;
-struct svc_ctx;
+struct srv_ctx;
 struct plugin;
 #ifdef HAVE_CASPER
 typedef struct cap_channel cap_channel_t;
@@ -47,7 +47,7 @@ struct ctx {
 	struct eloop *ctx_eloop;
 	struct if_head *ctx_ifaces;
 
-	struct svc_ctx *ctx_unpriv;
+	struct srv_ctx *ctx_unpriv;
 	struct plugin *ctx_plugins;
 	size_t ctx_nplugins;
 

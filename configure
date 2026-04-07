@@ -327,13 +327,16 @@ EOF
 		else
 			echo "no"
 		fi
-		rm -rf _test.c _test
+		rm -rf _test.* _test
 	fi
 else
 	echo "CPPFLAGS+=	-DNDEBUG" >>$CONFIG_MK
 fi
 
 case "$OS" in
+darwin*)
+	echo "LDFLAGS_SO+=	-Wl,-undefined,dynamic_lookup" >>$CONFIG_MK
+	;;
 freebsd*|kfreebsd*)
 	# FreeBSD hide some newer POSIX APIs behind _GNU_SOURCE ...
 	echo "CPPFLAGS+=	-D_GNU_SOURCE" >>$CONFIG_MK
@@ -381,7 +384,7 @@ _CC=false
 if $XCC _test.c -o _test >/dev/null 2>&3; then
 	[ -x _test ] && _CC=true
 fi
-rm -f _test.c _test
+rm -rf _test.* _test
 if ! $_CC; then
 	echo $XCC
 	echo "$CC does not create executables" >&2
@@ -394,8 +397,7 @@ $CC --version | $SED -e '1!d'
 if [ -z "$DHCPSD_USER" ]; then
 	printf "Detecting a suitable user for dhcpsd ... "
 	for x in _dhcpsd dhcpsd _dhcpd dhcpd; do
-		home=$(getent passwd $x 2>/dev/null | cut -d: -f6)
-		if [ -d "$home" ]; then
+		if id "$x" >/dev/null 2>&1; then
 			DHCPSD_USER="$x"
 			echo "$DHCPSD_USER"
 			break
@@ -430,7 +432,7 @@ if $XCC _capsicum.c -o _capsicum -lcasper -lcap_net 2>&3; then
 else
 	echo "no"
 fi
-	rm -f _capsicum.c _capsicum
+	rm -rf _capsicum.* _capsicum
 fi
 
 if [ -z "$SANDBOX" ]; then
@@ -448,7 +450,7 @@ EOF
 	else
 		echo "no"
 	fi
-	rm -f _pledge.c _pledge
+	rm -rf _pledge.* _pledge
 fi
 
 abort=false
@@ -474,7 +476,7 @@ else
 	echo "libc support for getifaddrs is required - aborting" >&2
 	abort=true
 fi
-rm -f _getifaddrs.c _getifaddrs
+rm -rf _getifaddrs.* _getifaddrs
 $abort && exit 1
 
 printf "Testing for clock_gettime ... "
@@ -495,7 +497,7 @@ else
 	echo "libc support for clock_getttime is required - aborting" >&2
 	abort=true
 fi
-rm -f _clock_gettime.c _clock_gettime
+rm -rf _clock_gettime.* _clock_gettime
 $abort && exit 1
 
 if [ -z "$ARC4RANDOM" ]; then
@@ -512,7 +514,7 @@ EOF
 		ARC4RANDOM=no
 	fi
 	echo "$ARC4RANDOM"
-	rm -f _arc4random.c _arc4random
+	rm -rf _arc4random.* _arc4random
 fi
 if [ "$ARC4RANDOM" = no ]; then
 	echo "COMPAT_SRCS+=	compat/arc4random.c" >>$CONFIG_MK
@@ -536,7 +538,7 @@ EOF
 	fi
 	echo "$CLOSEFROM"
 fi
-rm -f _closefrom.c _closefrom
+rm -rf _closefrom.* _closefrom
 if [ "$CLOSEFROM" = no ]; then
 	echo "COMPAT_SRCS+=	compat/closefrom.c" >>$CONFIG_MK
 	echo "#include			\"compat/closefrom.h\"" >>$CONFIG_H
@@ -561,7 +563,7 @@ echo "$IOCTL_REQ"
 if [ "$IOCTL_REQ" != "unsigned long" ]; then
 	echo "#define	IOCTL_REQUEST_TYPE	$IOCTL_REQ" >>$CONFIG_H
 fi
-rm -f _ioctl.c _ioctl
+rm -rf _ioctl.* _ioctl
 
 printf "Testing for inet_ntoa ... "
 cat <<EOF >_inet_ntoa.c
@@ -586,8 +588,30 @@ else
 	echo "libc support for inet_ntoa is required - aborting" >&2
 	abort=true
 fi
-rm -f _inet_ntoa.c _inet_ntoa
+rm -rf _inet_ntoa.* _inet_ntoa
 $abort && exit 1
+
+if [ -z "$SETPROCTITLE" ]; then
+	printf "Testing for setproctitle ... "
+	cat << EOF >_setproctitle.c
+#include <stdlib.h>
+#include <unistd.h>
+int main(void) {
+	setproctitle("foo");
+	return 0;
+}
+EOF
+	if $XCC _setproctitle.c -o _setproctitle 2>&3; then
+		SETPROCTITLE=yes
+	else
+		SETPROCTITLE=no
+	fi
+	echo "$SETPROCTITLE"
+	rm -rf _setproctitle.* _setproctitle
+fi
+if [ "$SETPROCTITLE" != no ]; then
+	echo "#define HAVE_SETPROCTITLE" >>$CONFIG_H
+fi
 
 if [ -z "$STRLCPY" ]; then
 	printf "Testing for strlcpy ... "
@@ -605,7 +629,7 @@ EOF
 		STRLCPY=no
 	fi
 	echo "$STRLCPY"
-	rm -f _strlcpy.c _strlcpy
+	rm -rf _strlcpy.* _strlcpy
 fi
 if [ "$STRLCPY" = no ]; then
 	echo "COMPAT_SRCS+=	compat/strlcpy.c" >>$CONFIG_MK
@@ -629,7 +653,7 @@ EOF
 		RBTREE=no
 	fi
 	echo "$RBTREE"
-	rm -f _rbtree.c _rbtree
+	rm -rf _rbtree.* _rbtree
 fi
 if [ "$RBTREE" = no ]; then
 	echo "VENDOR_SRCS+=	vendor/rbtree.c" >>$CONFIG_MK
@@ -659,7 +683,7 @@ EOF
 		REALLOCARRAY=no
 	fi
 	echo "$REALLOCARRAY"
-	rm -f _reallocarray.c _reallocarray
+	rm -rf _reallocarray.* _reallocarray
 fi
 if [ "$REALLOCARRAY" = no ]; then
 	echo "COMPAT_SRCS+=	compat/reallocarray.c" >>$CONFIG_MK
