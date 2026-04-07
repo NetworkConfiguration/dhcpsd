@@ -132,7 +132,7 @@ srv_recvl(void *arg, unsigned short e)
 {
 	struct srv_ctx *sctx = arg;
 
-	if (srv_recv(sctx, e) == -1)
+	if (srv_recv(sctx, e) == -1 && !(e & ELE_HANGUP))
 		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_FAILURE);
 }
 
