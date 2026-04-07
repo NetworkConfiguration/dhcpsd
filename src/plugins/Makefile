@@ -44,7 +44,7 @@ lua.o: lua.c
 	${CC} ${PICFLAG} -DPIC ${CFLAGS} ${CDBGFLAGS} ${LUA_CFLAGS} ${CPPFLAGS} -c lua.c -o $@
 
 lua.so: lua.o
-	${CC} ${LDFLAGS} ${LDFLAGS_SO} -shared -Wl,-x -o $@ lua.soo ${LUA_LIBS}
+	${CC} ${LDFLAGS} ${LDFLAGS_SO} -shared -Wl,-x -o $@ lua.o ${LUA_LIBS}
 
 lint: _lint
 
