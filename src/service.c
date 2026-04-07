@@ -51,10 +51,9 @@ struct srv_cmd {
 	size_t sc_datalen;
 };
 
-static void
-srv_recv(void *arg, unsigned short e)
+static ssize_t
+srv_recv(struct srv_ctx *sctx, unsigned short e)
 {
-	struct srv_ctx *sctx = arg;
 	struct srv_result *sr = &sctx->srv_result;
 	struct srv_cmd cmd;
 	struct iovec iov[] = {
@@ -69,11 +68,11 @@ srv_recv(void *arg, unsigned short e)
 	if (e & ELE_HANGUP) {
 	hangup:
 		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_SUCCESS);
-		return;
+		return -1;
 	}
 	if (e != ELE_READ) {
 		logerrx("%s: unexpected operation %u", __func__, e);
-		return;
+		return -1;
 	}
 
 	nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
@@ -81,11 +80,11 @@ srv_recv(void *arg, unsigned short e)
 		goto hangup;
 	if (nread == -1) {
 		logerr("%s: recvmsg cmd", __func__);
-		return;
+		return -1;
 	}
 	if (nread != sizeof(cmd)) {
 		logerrx("%s: invalid read len: %zd", __func__, nread);
-		return;
+		return -1;
 	}
 
 	if (cmd.sc_datalen != 0) {
@@ -93,7 +92,7 @@ srv_recv(void *arg, unsigned short e)
 			void *nbuf = realloc(sctx->srv_buf, cmd.sc_datalen);
 			if (nbuf == NULL) {
 				logerr("%s: realloc", __func__);
-				return;
+				return -1;
 			}
 			sctx->srv_buf = nbuf;
 			sctx->srv_buflen = cmd.sc_datalen;
@@ -104,25 +103,34 @@ srv_recv(void *arg, unsigned short e)
 		nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
 		if (nread == -1) {
 			logerr("%s: recvmsg cmd", __func__);
-			return;
+			return -1;
 		}
 		if ((size_t)nread != cmd.sc_datalen) {
 			logerrx("%s: read datalen mismatch: %zd != %zd",
 			    __func__, nread, sizeof(cmd) + cmd.sc_datalen);
-			return;
+			return -1;
 		}
 	}
 
 	sr->sr_result = cmd.sc_result;
 	sr->sr_errno = cmd.sc_errno;
-	sr->sr_data = sr->sr_datalen != 0 ? sctx->srv_buf : NULL;
+	sr->sr_data = cmd.sc_datalen != 0 ? sctx->srv_buf : NULL;
 	sr->sr_datalen = cmd.sc_datalen;
 
 	/* We are either a dispatcher for the helper, or a blocking loop for a
 	 * response */
 	if (sctx->srv_dispatch != NULL)
 		sctx->srv_dispatch(sctx, (struct plugin *)cmd.sc_plugin,
-		    cmd.sc_cmd, sctx->srv_buf, cmd.sc_datalen);
+		    cmd.sc_cmd, cmd.sc_datalen ? sctx->srv_buf : NULL,
+		    cmd.sc_datalen);
+
+	return (ssize_t)cmd.sc_datalen;
+}
+
+static void
+srv_recvl(void *arg, unsigned short e)
+{
+	srv_recv(arg, e);
 }
 
 ssize_t
@@ -189,7 +197,8 @@ srv_runv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 	events = eloop_waitfd(sctx->srv_fd);
 	if (events == -1)
 		return -1;
-	srv_recv(sctx, (unsigned short)events);
+	if (srv_recv(sctx, (unsigned short)events) == -1)
+		return -1;
 
 	if (result->sr_result == -1)
 		errno = result->sr_errno;
@@ -270,7 +279,7 @@ srv_init(struct ctx *ctx, const char *name,
 		goto error;
 	}
 
-	if (eloop_event_add(ctx->ctx_eloop, sctx->srv_fd, ELE_READ, srv_recv,
+	if (eloop_event_add(ctx->ctx_eloop, sctx->srv_fd, ELE_READ, srv_recvl,
 		sctx) == -1) {
 		logerr("%s: eloop_event_add", __func__);
 		goto error;
