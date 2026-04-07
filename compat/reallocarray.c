@@ -45,6 +45,8 @@
 void *
 reallocarray(void *ptr, size_t n, size_t size)
 {
+	if (n == 0 || size == 0)
+		return realloc(ptr, 0);
 
 	/*
 	 * Try to avoid division here.
@@ -53,7 +55,7 @@ reallocarray(void *ptr, size_t n, size_t size)
 	 * operand uses any of the most significant half of the bits.
 	 */
 	if ((n | size) >= SQRT_SIZE_MAX && n > SIZE_MAX / size) {
-		errno = EOVERFLOW;
+		errno = ENOMEM;
 		return NULL;
 	}
 	return realloc(ptr, n * size);
