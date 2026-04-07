@@ -102,12 +102,12 @@ srv_recv(struct srv_ctx *sctx, unsigned short e)
 
 		nread = recvmsg(sctx->srv_fd, &msg, MSG_WAITALL);
 		if (nread == -1) {
-			logerr("%s: recvmsg cmd", __func__);
+			logerr("%s: recvmsg data", __func__);
 			return -1;
 		}
 		if ((size_t)nread != cmd.sc_datalen) {
-			logerrx("%s: read datalen mismatch: %zd != %zd",
-			    __func__, nread, cmd.sc_datalen);
+			logerrx("%s: read datalen mismatch: %zu != %zu",
+			    __func__, (size_t)nread, cmd.sc_datalen);
 			return -1;
 		}
 	}

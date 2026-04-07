@@ -700,7 +700,11 @@ eloop_forked(struct eloop *eloop, unsigned short flags)
 	unsigned short events;
 	int err;
 
-	/* The fd is invalid after a fork, no need to close it. */
+/* kqueue invalidates the fd on fork.
+ * epoll shares state across fork, so we close the old and create a new one. */
+#ifdef USE_EPOLL
+	close(eloop->fd);
+#endif
 	eloop->fd = -1;
 	if (flags && eloop_open(eloop) == -1)
 		return -1;

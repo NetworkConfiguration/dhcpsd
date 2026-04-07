@@ -473,7 +473,7 @@ xsetfd(int fd, int flags)
 		if (oflags == -1)
 			return -1;
 		if (!(oflags & FD_CLOEXEC) &&
-		    fcntl(fd, F_SETFD, oflags | O_NONBLOCK) == -1)
+		    fcntl(fd, F_SETFD, oflags | FD_CLOEXEC) == -1)
 			return -1;
 	}
 #endif
