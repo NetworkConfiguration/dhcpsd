@@ -107,7 +107,7 @@ srv_recv(struct srv_ctx *sctx, unsigned short e)
 		}
 		if ((size_t)nread != cmd.sc_datalen) {
 			logerrx("%s: read datalen mismatch: %zd != %zd",
-			    __func__, nread, sizeof(cmd) + cmd.sc_datalen);
+			    __func__, nread, cmd.sc_datalen);
 			return -1;
 		}
 	}
