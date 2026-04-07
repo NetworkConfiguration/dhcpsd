@@ -130,7 +130,10 @@ srv_recv(struct srv_ctx *sctx, unsigned short e)
 static void
 srv_recvl(void *arg, unsigned short e)
 {
-	srv_recv(arg, e);
+	struct srv_ctx *sctx = arg;
+
+	if (srv_recv(sctx, e) == -1)
+		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_FAILURE);
 }
 
 ssize_t
