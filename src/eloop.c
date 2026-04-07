@@ -626,6 +626,10 @@ eloop_open(struct eloop *eloop)
 #elif defined(KQUEUE_CLOEXEC)
 	fd = kqueuex(KQUEUE_CLOEXEC);
 #elif defined(USE_KQUEUE) && defined(__APPLE__)
+	/* macOS does not allow setting CLOEXEC on kqueue.
+	 * This should not be a problem because eloop consumers
+	 * fork and exec rather than just exec and kqueue is
+	 * automatically closed on fork. */
 	fd = kqueue();
 #elif defined(USE_KQUEUE)
 	int flags;
