@@ -33,7 +33,7 @@ jobs:
   macos:
     strategy:
       matrix:
-        os: [ macos-latest, macos-arm64-latest ]
+        os: [ macos-latest, macos-latest-arm64 ]
     runs-on: ${{ matrix.os }}
 
     steps:
