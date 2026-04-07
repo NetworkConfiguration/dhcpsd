@@ -308,7 +308,7 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 	len -= sizeof(hostname_len);
 
 	if (hostname_len != 0) {
-		if (len < hostname_len) {
+		if (len < hostname_len || hostname_len > sizeof(hostname)) {
 			errno = EINVAL;
 			goto out;
 		}
