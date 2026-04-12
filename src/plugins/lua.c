@@ -39,6 +39,7 @@
 #include <lualib.h>
 #include <netdb.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -318,12 +319,17 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 	} else
 		hostname[0] = '\0';
 
-	if (len < sizeof(*l->l_req)) {
-		errno = EINVAL;
-		goto out;
-	}
 	/* Aligns bootp */
 	memmove(UNCONST(data), datap, len);
+
+	if (len < sizeof(*l->l_req)) {
+		/* Allow for a truncated vendor area if DHCP */
+		if (len < offsetof(struct bootp, vend) + sizeof(uint32_t) ||
+		    dhcp_cookiecmp(l->l_req) != 0) {
+			errno = EINVAL;
+			goto out;
+		}
+	}
 
 	l->l_req = data;
 	l->l_reqlen = len;
@@ -941,7 +947,6 @@ lua_lookup_addr(struct plugin *p, struct sockaddr *sa, uint32_t *ltime,
 
 	err = srv_runv(p->p_ctx->ctx_unpriv, p, L_LOOKUPADDR, iov,
 	    ARRAYCOUNT(iov), &result, &data, &len);
-
 	if (err == -1 || result == -1)
 		return -1;
 	if (len < sizeof(*ltime) + sizeof(struct sockaddr_in)) {
