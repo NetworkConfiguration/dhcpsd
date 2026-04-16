@@ -95,7 +95,6 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 	ssize_t err = -1;
 	struct dhcp_pool *pool, *pools = NULL;
 	int laddress, lnetmask, lfrom, lto, llease_time;
-	uint8_t cidr;
 	const char *saddress, *snetmask, *sfrom, *sto;
 	in_addr_t address, netmask, from, to;
 	uint32_t lease_time;
@@ -202,16 +201,8 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 		pool->dp_mask.s_addr = netmask;
 		pool->dp_from.s_addr = from;
 		pool->dp_to.s_addr = to;
-		cidr = inet_ntocidr(&pool->dp_mask);
 		pool->dp_lease_time = lease_time;
 
-		if (lease_time != 0)
-			loginfox("%s: %s: pool for %s/%d: %s - %s (%u secs)",
-			    ifname, lua_name, saddress, cidr, sfrom, sto,
-			    lease_time);
-		else
-			loginfox("%s: %s: pool for %s/%d: %s - %s", ifname,
-			    lua_name, saddress, cidr, sfrom, sto);
 	skip:
 		lua_pop(L, 4);
 
@@ -322,8 +313,9 @@ lua_run_lookup_addr(struct plugin *p, struct srv_ctx *sctx, const void *data,
 	/* Aligns bootp */
 	memmove(UNCONST(data), datap, len);
 
-	if (len < sizeof(*l->l_req)) {
-		/* Allow for a truncated vendor area if DHCP */
+	/* Allow for a truncated vendor area if it can at least
+	 * contain a DHCP cookie. */
+	if (len < offsetof(struct bootp, vend) + sizeof(uint32_t)) {
 		if (len < offsetof(struct bootp, vend) + sizeof(uint32_t) ||
 		    dhcp_cookiecmp(l->l_req) != 0) {
 			errno = EINVAL;
@@ -966,7 +958,9 @@ lua_configure_pools(struct plugin *p, struct interface *ifp)
 	ssize_t err, result;
 	void *_pools;
 	size_t poolslen, npools;
-	struct dhcp_pool *pool;
+	struct dhcp_pool *pool, *epool;
+	uint32_t cidr;
+	char addr[INET_ADDRSTRLEN], from[INET_ADDRSTRLEN], to[INET_ADDRSTRLEN];
 
 	err = srv_run(p->p_ctx->ctx_unpriv, p, L_CONFIGUREPOOLS, ifp->if_name,
 	    strlen(ifp->if_name) + 1, &result, &_pools, &poolslen);
@@ -984,6 +978,22 @@ lua_configure_pools(struct plugin *p, struct interface *ifp)
 	pool += ifp->if_npools;
 	memcpy(pool, _pools, poolslen);
 	ifp->if_npools += npools;
+
+	for (pool = _pools, epool = pool + npools; pool != epool; pool++) {
+		inet_ntop(AF_INET, &pool->dp_addr, addr, sizeof(addr));
+		cidr = inet_ntocidr(&pool->dp_mask);
+		inet_ntop(AF_INET, &pool->dp_from, from, sizeof(from));
+		inet_ntop(AF_INET, &pool->dp_to, to, sizeof(to));
+
+		if (pool->dp_lease_time != 0)
+			loginfox("%s: %s: pool for %s/%d: %s - %s (%u secs)",
+			    ifp->if_name, lua_name, addr, cidr, from, to,
+			    pool->dp_lease_time);
+		else
+			loginfox("%s: %s: pool for %s/%d: %s - %s",
+			    ifp->if_name, lua_name, addr, cidr, from, to);
+	}
+
 	return (ssize_t)npools;
 }
 
