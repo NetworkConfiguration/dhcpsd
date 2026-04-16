@@ -146,6 +146,7 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 		lnetmask = lua_getfield(L, -2, "netmask");
 		lfrom = lua_getfield(L, -3, "from");
 		lto = lua_getfield(L, -4, "to");
+		llease_time = lua_getfield(L, -5, "lease_time");
 		if (laddress != LUA_TSTRING) {
 			logerrx("%s: no address in pool", ifname);
 			goto skip;
@@ -162,10 +163,10 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 			logerrx("%s: no too in pool", ifname);
 			goto skip;
 		}
-		saddress = lua_tostring(L, -4);
-		snetmask = lua_tostring(L, -3);
-		sfrom = lua_tostring(L, -2);
-		sto = lua_tostring(L, -1);
+		saddress = lua_tostring(L, -5);
+		snetmask = lua_tostring(L, -4);
+		sfrom = lua_tostring(L, -3);
+		sto = lua_tostring(L, -2);
 		if (inet_pton(AF_INET, saddress, &address) != 1) {
 			logerrx("%s: not an ip address %s", lua_name, saddress);
 			goto skip;
@@ -182,8 +183,6 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 			logerrx("%s: not an ip address %s", lua_name, sto);
 			goto skip;
 		}
-
-		llease_time = lua_getfield(L, -5, "lease_time");
 		if (llease_time == LUA_TNUMBER)
 			lease_time = (uint32_t)lua_tonumber(L, -1);
 		else
@@ -204,8 +203,7 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 		pool->dp_lease_time = lease_time;
 
 	skip:
-		lua_pop(L, llease_time == LUA_TNUMBER ? 5 : 4);
-
+		lua_pop(L, 5);
 		lua_gettable(L, -1);
 		lua_pop(L, 1);
 		if (!array)

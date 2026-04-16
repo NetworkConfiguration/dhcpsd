@@ -37,6 +37,7 @@
 #ifdef AF_LINK
 #include <net/if_dl.h>
 #include <net/if_types.h>
+#include <netinet/in.h>
 #include <netinet/in_var.h>
 #undef AF_PACKET /* Newer Illumos defines this */
 #endif
