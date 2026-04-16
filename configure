@@ -592,13 +592,13 @@ rm -rf _inet_ntoa.* _inet_ntoa
 $abort && exit 1
 
 if [ -z "$LINK_SRC" ]; then
-	printf "Testing for route ..."
+	printf "Testing for route ... "
 	cat << EOF >_route.c
 #include <net/route.h>
 int main(void) {
-#ifdef RTM_IFINFO
+	struct rt_msghdr rtm = { .rtm_type = 0 };
+	rtm.rtm_type = RTM_IFINFO;
 	return 0;
-#endif
 }
 EOF
 	if $XCC _route.c -o _route 2>&3; then
