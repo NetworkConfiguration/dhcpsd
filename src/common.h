@@ -49,6 +49,13 @@
 #define UNUSED(a)     (void)(a)
 #define ARRAYCOUNT(a) (sizeof((a)) / sizeof((a)[0]))
 
+#ifndef ALIGNBYTES
+#define ALIGNBYTES (sizeof(int) - 1)
+#endif
+#ifndef ALIGN
+#define ALIGN(p) (((unsigned int)(p) + ALIGNBYTES) & ~ALIGNBYTES)
+#endif
+
 /* Some systems don't define timespec macros */
 #ifndef timespecclear
 #define timespecclear(tsp) (tsp)->tv_sec = (time_t)((tsp)->tv_nsec = 0L)
