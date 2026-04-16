@@ -454,7 +454,9 @@ unpriv_dispatch_getifaddrs(struct srv_ctx *sctx, const void *data, size_t len)
 	err = 0;
 err:
 	freeifaddrs(ifaddrs);
-	return srv_send(sctx, NULL, U_GETIFADDRS, err, buf, len);
+	err = srv_send(sctx, NULL, U_GETIFADDRS, err, buf, len);
+	free(buf);
+	return err;
 }
 
 static ssize_t

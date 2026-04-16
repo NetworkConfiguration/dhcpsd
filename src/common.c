@@ -30,6 +30,10 @@
 
 #include <netinet/in.h>
 
+#ifdef AF_PACKET
+#include <netpacket/packet.h>
+#endif
+
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <ctype.h>
@@ -434,6 +438,10 @@ sa_len(const struct sockaddr *sa)
 	return sa->sa_len;
 #else
 	switch (sa->sa_family) {
+#ifdef AF_PACKET
+	case AF_PACKET:
+		return sizeof(struct sockaddr_ll);
+#endif
 	case AF_INET:
 		return sizeof(struct sockaddr_in);
 	case AF_INET6:

@@ -398,11 +398,14 @@ static struct sock_filter seccomp_filter[] = {
 	SECCOMP_ALLOW(__NR_rt_sigtimedwait),
 #endif
 #ifdef VALGRIND
+/* This is dangerous, and also pointless as in privsep
+ * we are no longer root and thus cannot unlink the valgrind
+ * pipes anyway. */
 #ifdef __NR_unlink
-	/* This is dangerous, and also pointless as in privsep
-	 * we are no longer root and thus cannot unlink the valgrind
-	 * pipes anyway. */
 	SECCOMP_ALLOW(__NR_unlink),
+#endif
+#ifdef __NR_unlinkat
+	SECCOMP_ALLOW(__NR_unlinkat),
 #endif
 #endif
 

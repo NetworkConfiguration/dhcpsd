@@ -311,7 +311,7 @@ EOF
 	esac
 
 	if [ "$SANITIZEADDRESS" = yes ]; then
-		printf "Testing compiler supports address sanitisation ..."
+		printf "Testing compiler supports address sanitisation ... "
 	cat <<EOF >_test.c
 int main(void) {
 	return 0;
@@ -608,6 +608,26 @@ EOF
 		echo "no"
 	fi
 	rm -rf _route.* _route
+fi
+
+if [ -z "$LINK_SRC" ]; then
+	printf "Testing for netlink ... "
+	cat << EOF >_netlink.c
+#include <asm/types.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <sys/socket.h>
+int main(void) {
+	return 0;
+}
+EOF
+	if $XCC _netlink.c -o _netlink 2>&3; then
+		LINK_SRC="netlink.c"
+		echo "yes"
+	else
+		echo "no"
+	fi
+	rm -rf _netlink.* _netlink
 fi
 if [ -z "$LINK_SRC" ]; then
 	echo "no mechanism for detecting interface departures found" >&2

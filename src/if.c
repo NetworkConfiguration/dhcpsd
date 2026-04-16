@@ -213,8 +213,6 @@ if_learnifaces(struct ctx *ctx)
 		return -1;
 	}
 	for (ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
-		if (ifa->ifa_addr == NULL)
-			continue;
 		if (!sa_is_link(ifa->ifa_addr))
 			continue;
 
