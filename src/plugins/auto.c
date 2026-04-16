@@ -119,7 +119,7 @@ auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 		    sizeof(*pool) * (ifp->if_npools + 1));
 		if (pool == NULL) {
 			logerr("%s: realloc", __func__);
-			free(ifaddrs);
+			freeifaddrs(ifaddrs);
 			return -1;
 		}
 		ifp->if_pools = pool;

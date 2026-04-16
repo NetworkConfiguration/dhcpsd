@@ -467,7 +467,7 @@ unpriv_dispatch_learnif(struct srv_ctx *sctx, const void *data, size_t len)
 	size_t nlen;
 	void *buf = NULL;
 	struct ifaddrs *ifaddrs = NULL, *ifa;
-	bool free_ifp = true;
+	bool found_if_index = false;
 
 	if (len != sizeof(if_index)) {
 		errno = EINVAL;
@@ -479,7 +479,7 @@ unpriv_dispatch_learnif(struct srv_ctx *sctx, const void *data, size_t len)
 
 	TAILQ_FOREACH(ifp, ctx->ctx_ifaces, if_next) {
 		if (ifp->if_index == if_index) {
-			free_ifp = false;
+			found_if_index = true;
 			break;
 		}
 	}
@@ -516,12 +516,15 @@ unpriv_dispatch_learnif(struct srv_ctx *sctx, const void *data, size_t len)
 	err = 0;
 	buf = ifp;
 	len = sizeof(*ifp);
-	TAILQ_INSERT_TAIL(ctx->ctx_ifaces, ifp, if_next);
-	free_ifp = false;
+	if (!found_if_index) {
+		TAILQ_INSERT_TAIL(ctx->ctx_ifaces, ifp, if_next);
+		/* stop ifp being freed below */
+		found_if_index = true;
+	}
 
 err:
 	freeifaddrs(ifaddrs);
-	if (free_ifp)
+	if (!found_if_index)
 		if_free(ifp);
 	return srv_send(sctx, NULL, U_LEARNIF, err, buf, len);
 }

@@ -133,7 +133,10 @@ link_open(struct ctx *ctx)
 	if (lctx == NULL)
 		return -1;
 
+	/* lctx will be freed at exit regardless if any error below
+	 * so there is no need to free it on an error path. */
 	lctx->link_ctx = ctx;
+	ctx->ctx_link = lctx;
 
 	lctx->link_fd = xsocket(PF_ROUTE, SOCK_RAW | SOCK_CXNB, AF_UNSPEC);
 	if (lctx->link_fd == -1)
@@ -141,13 +144,13 @@ link_open(struct ctx *ctx)
 
 #ifdef SO_RERROR
 	n = 1;
-	if (setsockopt(ctx->link_fd, SOL_SOCKET, SO_RERROR, &n, sizeof(n)) ==
+	if (setsockopt(lctx->link_fd, SOL_SOCKET, SO_RERROR, &n, sizeof(n)) ==
 	    -1)
 		logerr("%s: SO_RERROR", __func__);
 #endif
 
 #if defined(RO_MSGFILTER)
-	if (setsockopt(ctx->link_fd, PF_ROUTE, RO_MSGFILTER, &msgfilter,
+	if (setsockopt(lctx->link_fd, PF_ROUTE, RO_MSGFILTER, &msgfilter,
 		sizeof(msgfilter)) == -1)
 		logerr(__func__);
 #elif defined(ROUTE_MSGFILTER)
@@ -155,8 +158,8 @@ link_open(struct ctx *ctx)
 	msgfilter_mask = 0;
 	for (i = 0; i < __arraycount(msgfilter); i++)
 		msgfilter_mask |= ROUTE_FILTER(msgfilter[i]);
-	if (setsockopt(ctx->link_fd, PF_ROUTE, ROUTE_MSGFILTER, &msgfilter_mask,
-		sizeof(msgfilter_mask)) == -1)
+	if (setsockopt(lctx->link_fd, PF_ROUTE, ROUTE_MSGFILTER,
+		&msgfilter_mask, sizeof(msgfilter_mask)) == -1)
 		logerr(__func__);
 #else
 #warning kernel does not support route message filtering

@@ -166,9 +166,8 @@ if_sockaddr_active(struct ctx *ctx, const char *if_name,
 	const struct sockaddr_dl *sdl = (const void *)sa;
 	struct if_laddrreq iflr = { .flags = IFLR_PREFIX };
 
-	strlcpy(iflr.iflr_name, ifa->ifa_name, sizeof(iflr.iflr_name));
-	memcpy(&iflr.addr, ifa->ifa_addr,
-	    MIN(ifa->ifa_addr->sa_len, sizeof(iflr.addr)));
+	strlcpy(iflr.iflr_name, if_name, sizeof(iflr.iflr_name));
+	memcpy(&iflr.addr, sa, MIN(sa->sa_len, sizeof(iflr.addr)));
 	iflr.flags = IFLR_PREFIX;
 	iflr.prefixlen = (unsigned int)sdl->sdl_alen * NBBY;
 	if (ioctl(ctx->ctx_pf_link_fd, SIOCGLIFADDR, &iflr) == -1 ||
@@ -195,8 +194,10 @@ if_link_match_index(const struct sockaddr *sa, unsigned int if_index)
 	const struct sockaddr_dl *sdl = (const void *)sa;
 	return sdl->sdl_index == if_index ? 1 : 0;
 #elif defined(AF_PACKET)
-	const struct sockaddr_ll *sll = (const void *)ifa->ifa_addr;
+	const struct sockaddr_ll *sll = (const void *)sa;
 	return (unsigned int)sll->sll_index == if_index ? 1 : 0;
+#else
+#error undefined platform
 #endif
 }
 
@@ -346,7 +347,7 @@ if_findifpfromcmsg(struct ctx *ctx, struct msghdr *msg, void *to)
 			}
 		}
 		if (ifp->if_flags & IF_ACTIVE) {
-			log_infox("%s: activated interface (%d)", ifp->if_name,
+			loginfox("%s: activated interface (%d)", ifp->if_name,
 			    ifp->if_index);
 			if (dhcpsd_configure_pools(ifp) == -1) {
 				logerr("%s: dhcpsd_configure_pools",

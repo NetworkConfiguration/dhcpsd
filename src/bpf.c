@@ -527,7 +527,7 @@ eexit:
 }
 
 /* Keep support for reading around, we might need it in the future. */
-#if 1
+#if 0
 /* BPF requires that we read the entire buffer.
  * So we pass the buffer in the API so we can loop on >1 packet. */
 ssize_t
