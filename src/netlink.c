@@ -149,7 +149,7 @@ netlink_link(struct link_ctx *lctx, struct nlmsghdr *nlm)
 		return 0;
 
 	if (nlm->nlmsg_type == RTM_DELLINK)
-		loginfox("%s: interface departed", ifp->if_name);
+		loginfox("%s: interface has departed", ifp->if_name);
 	else if (!(ifi->ifi_flags & IFF_UP))
 		loginfox("%s: interface is down", ifp->if_name);
 	else

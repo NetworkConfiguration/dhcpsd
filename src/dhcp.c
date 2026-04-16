@@ -1303,10 +1303,12 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 		wanted = dhcp_lease_findaddr(ctx, &paddr);
 		if (wanted != NULL && !dhcp_lease_avail(lease, wanted, &now)) {
 			logwarnx(
-			    "%s: plugin assigned address unavailable: 0x%x %s",
+			    "%s: plugin assigned address in-use: 0x%x %s",
 			    ifp->if_name, bootp->xid, inet_ntoa(paddr));
+#if 0
 			paddr.s_addr = INADDR_ANY;
 			wanted = NULL;
+#endif
 		}
 		break;
 	}

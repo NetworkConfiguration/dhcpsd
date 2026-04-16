@@ -470,8 +470,6 @@ open_pf_inet:
 		logerr("%s: PF_INET", __func__);
 		goto exit;
 	}
-	if (ctx.ctx_options & DHCPSD_RUN)
-		goto run;
 
 #ifdef IFLR_ACTIVE
 	ctx.ctx_pf_link_fd = xsocket(PF_LINK, SOCK_DGRAM | SOCK_CLOEXEC, 0);
@@ -480,6 +478,9 @@ open_pf_inet:
 		goto exit;
 	}
 #endif
+
+	if (ctx.ctx_options & DHCPSD_RUN)
+		goto run;
 
 	if (link_open(&ctx) == -1) {
 		logerr("%s: link_open", __func__);

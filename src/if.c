@@ -164,14 +164,17 @@ if_sockaddr_active(struct ctx *ctx, const char *if_name,
 {
 #ifdef IFLR_ACTIVE
 	const struct sockaddr_dl *sdl = (const void *)sa;
-	struct if_laddrreq iflr = { .flags = IFLR_PREFIX };
+	struct if_laddrreq iflr = {
+		.flags = IFLR_PREFIX,
+		.prefixlen = (unsigned int)sdl->sdl_alen * NBBY,
+	};
 
 	strlcpy(iflr.iflr_name, if_name, sizeof(iflr.iflr_name));
 	memcpy(&iflr.addr, sa, MIN(sa->sa_len, sizeof(iflr.addr)));
-	iflr.flags = IFLR_PREFIX;
-	iflr.prefixlen = (unsigned int)sdl->sdl_alen * NBBY;
-	if (ioctl(ctx->ctx_pf_link_fd, SIOCGLIFADDR, &iflr) == -1 ||
-	    !(iflr.flags & IFLR_ACTIVE))
+
+	if (ioctl(ctx->ctx_pf_link_fd, SIOCGLIFADDR, &iflr) == -1)
+		return 0;
+	if (!(iflr.flags & IFLR_ACTIVE))
 		return 0;
 #else
 	UNUSED(ctx);
@@ -330,7 +333,8 @@ if_findifpfromcmsg(struct ctx *ctx, struct msghdr *msg, void *to)
 
 		if (unpriv_learnif(ifp) == -1) {
 			logerr("%s: unpriv_learnif", __func__);
-			if_free(ifp);
+			/* Avoid neededless checks */
+			free(ifp);
 			return NULL;
 		}
 
@@ -345,7 +349,7 @@ if_findifpfromcmsg(struct ctx *ctx, struct msghdr *msg, void *to)
 			}
 		}
 		if (ifp->if_flags & IF_ACTIVE) {
-			loginfox("%s: activated interface (%d)", ifp->if_name,
+			logdebugx("%s: activated interface (%d)", ifp->if_name,
 			    ifp->if_index);
 			if (dhcpsd_configure_pools(ifp) == -1) {
 				logerr("%s: dhcpsd_configure_pools",

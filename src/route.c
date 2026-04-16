@@ -30,6 +30,7 @@
 #include <net/if.h>
 #include <net/route.h>
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -77,6 +78,34 @@ route_dispatch_ifinfo(struct link_ctx *lctx, struct rt_msghdr *rtm)
 	if_free(ifp);
 }
 
+#ifdef RTM_IFANNOUNCE
+static void
+route_dispatch_ifannounce(struct link_ctx *lctx, const struct rt_msghdr *rtm) 
+{
+	struct ctx *ctx = lctx->link_ctx;
+	const struct if_announcemsghdr *ifan = (const struct if_announcemsghdr *)rtm;
+	struct interface *ifp;
+
+	if (rtm->rtm_msglen < sizeof(*ifan))
+		return;
+
+	if (ifan->ifan_what != IFAN_DEPARTURE)
+		return;
+
+	/* Interface has departed, remove it from consideration. */
+	TAILQ_FOREACH(ifp, ctx->ctx_ifaces, if_next) {
+		if (ifp->if_index == ifan->ifan_index)
+			break;
+	}
+	if (ifp == NULL)
+		return;
+
+	logwarnx("%s: interface has departed", ifp->if_name);
+	TAILQ_REMOVE(ctx->ctx_ifaces, ifp, if_next);
+	if_free(ifp);
+}
+#endif
+
 static void
 route_dispatch(void *arg, unsigned short e)
 {
@@ -105,6 +134,11 @@ route_dispatch(void *arg, unsigned short e)
 	case RTM_IFINFO:
 		route_dispatch_ifinfo(lctx, &rtm.hdr);
 		break;
+#ifdef RTM_IFANNOUNCE
+	case RTM_IFANNOUNCE:
+		route_dispatch_ifannounce(lctx, &rtm.hdr);
+		break;
+#endif
 	default:
 		/* Ignore other messages */
 		break;
