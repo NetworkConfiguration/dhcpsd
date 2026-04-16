@@ -62,15 +62,15 @@ netlink_get(struct link_ctx *lctx, struct iovec *iov, int fd, int flags,
 		.msg_iov = iov,
 		.msg_iovlen = 1,
 	};
-	size_t len;
+	ssize_t len;
 	struct nlmsghdr *nlm;
 	int r = 0;
 	unsigned int again;
 	bool terminated;
 
 recv_again:
-	len = (size_t)recvmsg(fd, &msg, flags);
-	if (len == 0 || (ssize_t)len == -1)
+	len = recvmsg(fd, &msg, flags);
+	if (len == 0 || len == -1)
 		return (int)len;
 
 	/* Check sender */
