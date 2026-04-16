@@ -73,17 +73,18 @@ route_dispatch_ifinfo(struct link_ctx *lctx, struct rt_msghdr *rtm)
 	if (ifp == NULL)
 		return;
 
-	logwarnx("%s: interface is down", ifp->if_name);
+	loginfox("%s: interface is down", ifp->if_name);
 	TAILQ_REMOVE(ctx->ctx_ifaces, ifp, if_next);
 	if_free(ifp);
 }
 
 #ifdef RTM_IFANNOUNCE
 static void
-route_dispatch_ifannounce(struct link_ctx *lctx, const struct rt_msghdr *rtm) 
+route_dispatch_ifannounce(struct link_ctx *lctx, const struct rt_msghdr *rtm)
 {
 	struct ctx *ctx = lctx->link_ctx;
-	const struct if_announcemsghdr *ifan = (const struct if_announcemsghdr *)rtm;
+	const struct if_announcemsghdr *ifan =
+	    (const struct if_announcemsghdr *)rtm;
 	struct interface *ifp;
 
 	if (rtm->rtm_msglen < sizeof(*ifan))
@@ -100,7 +101,7 @@ route_dispatch_ifannounce(struct link_ctx *lctx, const struct rt_msghdr *rtm)
 	if (ifp == NULL)
 		return;
 
-	logwarnx("%s: interface has departed", ifp->if_name);
+	loginfox("%s: interface has departed", ifp->if_name);
 	TAILQ_REMOVE(ctx->ctx_ifaces, ifp, if_next);
 	if_free(ifp);
 }

@@ -38,8 +38,6 @@
 
 #include <fcntl.h>
 
-#include "src/priv.h"
-
 #ifdef AF_LINK
 #include <net/if_dl.h>
 #endif
@@ -73,6 +71,7 @@
 #include "if.h"
 #include "logerr.h"
 #include "plugin.h"
+#include "priv.h"
 
 #ifdef HAVE_CASPER
 #include <sys/capsicum.h>
@@ -1302,8 +1301,7 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 			break;
 		wanted = dhcp_lease_findaddr(ctx, &paddr);
 		if (wanted != NULL && !dhcp_lease_avail(lease, wanted, &now)) {
-			logwarnx(
-			    "%s: plugin assigned address in-use: 0x%x %s",
+			logwarnx("%s: plugin assigned address in-use: 0x%x %s",
 			    ifp->if_name, bootp->xid, inet_ntoa(paddr));
 #if 0
 			paddr.s_addr = INADDR_ANY;
@@ -1665,12 +1663,8 @@ dhcp_readudp0(struct dhcp_ctx *ctx, int fd, unsigned short events)
 	bootp = ctx->dhcp_udp_buf;
 	ifp = if_findifpfromcmsg(ctx->dhcp_ctx, &msg, NULL);
 	if (ifp == NULL) {
-		/* This is a common situation for me when my tap
-		 * interfaces come and go. */
-#if 1
 		logwarnx("dhcp: interface not found 0x%x %s", bootp->xid,
 		    inet_ntoa(from.sin_addr));
-#endif
 		return;
 	}
 
