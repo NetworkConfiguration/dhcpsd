@@ -195,7 +195,7 @@ if_link_match_index(const struct sockaddr *sa, unsigned int if_index)
 	return sdl->sdl_index == if_index ? 1 : 0;
 #elif defined(AF_PACKET)
 	const struct sockaddr_ll *sll = (const void *)sa;
-	return (unsigned int)sll->sll_index == if_index ? 1 : 0;
+	return (unsigned int)sll->sll_ifindex == if_index ? 1 : 0;
 #else
 #error undefined platform
 #endif
