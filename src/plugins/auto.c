@@ -44,6 +44,7 @@
 #include "if.h"
 #include "logerr.h"
 #include "plugin.h"
+#include "unpriv.h"
 
 static const char auto_name[] = "auto";
 static const char auto_description[] = "Automatic DHCP configuration";
@@ -65,7 +66,8 @@ inet_private_address(struct in_addr *addr)
 static ssize_t
 auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 {
-	struct ifaddrs *ifa;
+	struct srv_ctx *sctx = ifp->if_ctx->ctx_unpriv;
+	struct ifaddrs *ifaddrs, *ifa;
 	struct sockaddr_in *sin_addr, *sin_mask;
 	uint8_t *ip, cidr;
 	struct dhcp_pool *pool;
@@ -73,7 +75,11 @@ auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 	const char *fromp, *top;
 	ssize_t npools = 0;
 
-	for (ifa = ifp->if_ctx->ctx_ifa; ifa; ifa = ifa->ifa_next) {
+	if (unpriv_getifaddrs(sctx, &ifaddrs, &ifp->if_index) == -1) {
+		logerr("%s: unpriv_getifaddrs %d:", __func__, ifp->if_index);
+		return -1;
+	}
+	for (ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
 		if (ifa->ifa_addr == NULL)
 			continue;
 		if (ifa->ifa_flags & IFF_LOOPBACK)
@@ -113,6 +119,7 @@ auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 		    sizeof(*pool) * (ifp->if_npools + 1));
 		if (pool == NULL) {
 			logerr("%s: realloc", __func__);
+			free(ifaddrs);
 			return -1;
 		}
 		ifp->if_pools = pool;
@@ -146,6 +153,7 @@ auto_configure_pools(__unused struct plugin *p, struct interface *ifp)
 		npools++;
 	}
 
+	freeifaddrs(ifaddrs);
 	return npools;
 }
 

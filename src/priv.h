@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * dhcpsd: Ethernet output
+ * dhcpsd - privileged service helper
  * Copyright (c) 2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
@@ -26,53 +26,16 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/uio.h>
+#ifndef PRIV_H
+#define PRIV_H
 
-#include <net/if.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/if_ether.h>
+struct ctx;
+struct srv_ctx;
+struct interface;
+struct iovec;
 
-#include <errno.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "bpf.h"
-#include "dhcp.h"
-#include "if.h"
-#include "if_ether.h"
-
-ssize_t
-if_ether_output(const struct interface *ifp, int fd, const struct iovec *_iov,
-    int iovcnt)
-{
-	struct ether_header eh = {};
-	struct iovec iov[iovcnt + 1];
-	struct ip *ip = _iov[0].iov_base;
-	struct bootp *bootp = _iov[iovcnt - 1].iov_base;
-
-	if (ifp->if_hwlen != sizeof(eh.ether_shost)) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	memcpy(eh.ether_shost, ifp->if_hwaddr, ifp->if_hwlen);
-	if (ip->ip_p != IPPROTO_UDP || ntohs(bootp->flags) & BROADCAST_FLAG)
-		memset(eh.ether_dhost, 0xff, sizeof(eh.ether_dhost));
-	else {
-		if (bootp->hlen != sizeof(eh.ether_dhost)) {
-			errno = ENOTSUP;
-			return -1;
-		}
-		memcpy(eh.ether_dhost, bootp->chaddr, bootp->hlen);
-	}
-	eh.ether_type = htons(ETHERTYPE_IP);
-
-	iov[0].iov_base = &eh;
-	iov[0].iov_len = sizeof(eh);
-	memcpy(iov + 1, _iov, sizeof(*iov) * (size_t)iovcnt);
-
-	return writev(fd, iov, ++iovcnt);
-}
+struct srv_ctx *priv_init(struct ctx *);
+int priv_openbpf(struct interface *);
+ssize_t priv_sendbpf(struct interface *, const struct iovec *, size_t);
+int priv_freeif(struct interface *);
+#endif

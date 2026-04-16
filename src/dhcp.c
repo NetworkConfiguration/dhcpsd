@@ -38,6 +38,8 @@
 
 #include <fcntl.h>
 
+#include "src/priv.h"
+
 #ifdef AF_LINK
 #include <net/if_dl.h>
 #endif
@@ -110,8 +112,8 @@ static void dhcp_set_expire_timeout(struct dhcp_ctx *ctx);
 static void dhcp_handlebootp(struct interface *ifp, struct bootp *bootp,
     size_t len, uint32_t flags);
 
-static inline int
-dhcp_cookiecmp(struct bootp *bootp)
+int
+dhcp_cookiecmp(const struct bootp *bootp)
 {
 	uint32_t cookie = htonl(MAGIC_COOKIE);
 
@@ -259,7 +261,7 @@ dhcp_findoption(const struct bootp *bootp, size_t len, uint8_t opt)
 	return NULL;
 }
 
-static void
+static ssize_t
 dhcp_outputudp(const struct interface *ifp, const size_t len)
 {
 	const struct dhcp_ctx *ctx = ifp->if_ctx->ctx_dhcp;
@@ -272,22 +274,28 @@ dhcp_outputudp(const struct interface *ifp, const size_t len)
 		.sin_len = sizeof(sin),
 #endif
 	};
+	ssize_t nbytes;
 
 #ifdef HAVE_CASPER
 	if (cap_connect(ctx->dhcp_ctx->ctx_capnet, ctx->dhcp_capfd,
-		(struct sockaddr *)&sin, sizeof(sin)) == -1)
+		(struct sockaddr *)&sin, sizeof(sin)) == -1) {
 		logerr("%s: cap_connect", __func__);
-	else if (send(ctx->dhcp_capfd, bootp, len, 0) == -1)
+		return -1;
+	}
+	nbytes = send(ctx->dhcp_capfd, bootp, len, 0);
+	if (nbytes == -1)
 		logerr("%s: send", __func__);
 #else
-	if (sendto(ctx->dhcp_fd, bootp, len, 0, (struct sockaddr *)&sin,
-		sizeof(sin)) == -1)
+	nbytes = sendto(ctx->dhcp_fd, bootp, len, 0, (struct sockaddr *)&sin,
+	    sizeof(sin));
+	if (nbytes == -1)
 		logerr("%s: sendto", __func__);
 #endif
+	return nbytes;
 }
 
-static void
-dhcp_outputipudp(const struct interface *ifp, const struct in_addr *src,
+static ssize_t
+dhcp_outputipudp(struct interface *ifp, const struct in_addr *src,
     const size_t len)
 {
 	const struct dhcp_ctx *ctx = ifp->if_ctx->ctx_dhcp;
@@ -328,6 +336,7 @@ dhcp_outputipudp(const struct interface *ifp, const struct in_addr *src,
 		    .iov_len = len,
 		},
 	};
+	ssize_t nbytes;
 
 	if (dhcp_cookiecmp(bootp) == 0 &&
 	    ((opt = dhcp_findoption(bootp, len, DHO_MESSAGETYPE)) != NULL) &&
@@ -360,9 +369,10 @@ dhcp_outputipudp(const struct interface *ifp, const struct in_addr *src,
 	in_cksum(&udp, sizeof(udp), &sum);
 	udp.uh_sum = in_cksum(bootp, len, &sum);
 
-	if (ifp->if_output(ifp, ifp->if_bpf->bpf_fd, iov, ARRAYCOUNT(iov)) ==
-	    -1)
-		logerr("%s: if_output: %s", __func__, ifp->if_name);
+	nbytes = priv_sendbpf(ifp, iov, ARRAYCOUNT(iov));
+	if (nbytes == -1)
+		logerr("%s: priv_sendbpf: %s", __func__, ifp->if_name);
+	return nbytes;
 }
 
 static const char *
@@ -837,12 +847,12 @@ dhcp_addoptions(struct bootp *bootp, uint8_t **p, const uint8_t *e,
 	return 0;
 }
 
-static void
-dhcp_output(const struct interface *ifp, const struct dhcp_lease *lease,
+static ssize_t
+dhcp_output(struct interface *ifp, const struct dhcp_lease *lease,
     const uint8_t type, const char *msg, const struct bootp *req, size_t reqlen)
 {
 	struct dhcp_ctx *ctx = ifp->if_ctx->ctx_dhcp;
-	struct bootp *bootp = ctx->dhcp_bootp;
+	struct bootp *bootp;
 	const struct dhcp_pool *pool;
 	struct in_addr addr;
 	uint8_t *p, *e;
@@ -852,6 +862,18 @@ dhcp_output(const struct interface *ifp, const struct dhcp_lease *lease,
 	const uint8_t *opt;
 	int err;
 
+	len = (size_t)ifp->if_mtu - sizeof(struct udphdr) - sizeof(struct ip);
+	if (len > ctx->dhcp_bootplen) {
+		void *n = realloc(ctx->dhcp_bootp, len);
+		if (n == NULL) {
+			logerr("%s: realloc", __func__);
+			return -1;
+		}
+		ctx->dhcp_bootp = n;
+		ctx->dhcp_bootplen = len;
+	}
+
+	bootp = ctx->dhcp_bootp;
 	memset(bootp, 0, sizeof(*bootp));
 	bootp->op = BOOTREPLY;
 	bootp->flags = htons(ntohs(req->flags) & BROADCAST_FLAG);
@@ -909,7 +931,7 @@ dhcp_output(const struct interface *ifp, const struct dhcp_lease *lease,
 			    ifp->if_name);
 		else {
 			logerr("%s: dhcp_addoptions", ifp->if_name);
-			return;
+			return -1;
 		}
 	}
 
@@ -928,10 +950,9 @@ out:
 	    bootp->xid, inet_ntoa(addr));
 	if (bootp->giaddr != INADDR_ANY ||
 	    (bootp->ciaddr != INADDR_ANY && type != DHCP_NAK))
-		dhcp_outputudp(ifp, len);
-	else
-		dhcp_outputipudp(ifp, &pool->dp_addr, len);
-	return;
+		return dhcp_outputudp(ifp, len);
+
+	return dhcp_outputipudp(ifp, &pool->dp_addr, len);
 }
 
 static void
@@ -1644,7 +1665,7 @@ dhcp_readudp0(struct dhcp_ctx *ctx, int fd, unsigned short events)
 	if (ifp == NULL) {
 		/* This is a common situation for me when my tap
 		 * interfaces come and go. */
-#if 0
+#if 1
 		logwarnx("dhcp: interface not found 0x%x %s", bootp->xid,
 		    inet_ntoa(from.sin_addr));
 #endif
@@ -1709,54 +1730,6 @@ dhcp_expire_leases(struct dhcp_ctx *ctx)
 	dhcp_set_expire_timeout(ctx);
 }
 
-int
-dhcp_openbpf(struct interface *ifp)
-{
-	struct ctx *ctx = ifp->if_ctx;
-	struct dhcp_ctx *dhcp_ctx = ctx->ctx_dhcp;
-	struct ifreq ifr = { .ifr_mtu = 0 };
-	size_t buflen;
-#ifdef HAVE_CASPER
-	cap_rights_t rights;
-#endif
-
-	/* Ensure our bootp write buffer is as big as the MTU */
-	strlcpy(ifr.ifr_name, ifp->if_name, sizeof(ifr.ifr_name));
-	if (ioctl(ctx->ctx_pf_inet_fd, SIOCGIFMTU, &ifr, sizeof(ifr)) == -1) {
-		logerr("%s SIOCGIFMTU", __func__);
-		return -1;
-	}
-	buflen = (size_t)ifr.ifr_mtu - sizeof(struct udphdr) -
-	    sizeof(struct ip);
-	if (buflen > dhcp_ctx->dhcp_bootplen) {
-		void *n = realloc(dhcp_ctx->dhcp_bootp, buflen);
-		if (n == NULL) {
-			logerr("%s: realloc", __func__);
-			return -1;
-		}
-		dhcp_ctx->dhcp_bootp = n;
-		dhcp_ctx->dhcp_bootplen = buflen;
-	}
-
-	/*
-	 * We only write to BPF, we don't read as we get the
-	 * same data from the UDP socket even for unconfigured clients.
-	 */
-	ifp->if_bpf = bpf_open(ifp, bpf_bootp, O_WRONLY);
-	if (ifp->if_bpf == NULL)
-		return -1;
-
-#ifdef HAVE_CASPER
-	cap_rights_init(&rights, CAP_WRITE);
-	if (caph_rights_limit(ifp->if_bpf->bpf_fd, &rights) == -1) {
-		logerr("%s: caph_rights_limit", __func__);
-		return -1;
-	}
-#endif
-
-	return 0;
-}
-
 static int
 dhcp_open(void)
 {
@@ -1814,6 +1787,7 @@ dhcp_open(void)
 		goto errexit;
 	}
 
+	logdebugx("dhcp: listening on port %d", BOOTPS);
 	return s;
 
 errexit:

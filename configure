@@ -321,9 +321,9 @@ EOF
 			echo "yes"
 			echo "SANITIZEADDRESS=	yes" >>$CONFIG_MK
 			echo "CPPFLAGS+=	-DASAN" >>$CONFIG_MK
-			echo "CFLAGS+=	-fsanitize=address" >>$CONFIG_MK
+			echo "CFLAGS+=	-fsanitize=address,undefined" >>$CONFIG_MK
 			echo "CFLAGS+=	-fno-omit-frame-pointer" >>$CONFIG_MK
-			echo "LDFLAGS+=	-fsanitize=address" >>$CONFIG_MK
+			echo "LDFLAGS+=	-fsanitize=address,undefined" >>$CONFIG_MK
 		else
 			echo "no"
 		fi
@@ -591,6 +591,30 @@ fi
 rm -rf _inet_ntoa.* _inet_ntoa
 $abort && exit 1
 
+if [ -z "$LINK_SRC" ]; then
+	printf "Testing for route ..."
+	cat << EOF >_route.c
+#include <net/route.h>
+int main(void) {
+#ifdef RTM_IFINFO
+	return 0;
+#endif
+}
+EOF
+	if $XCC _route.c -o _route 2>&3; then
+		LINK_SRC="route.c"
+		echo "yes"
+	else
+		echo "no"
+	fi
+	rm -rf _route.* _route
+fi
+if [ -z "$LINK_SRC" ]; then
+	echo "no mechanism for detecting interface departures found" >&2
+	exit 1
+fi
+echo "LINK_SRC=	$LINK_SRC" >>$CONFIG_MK
+
 if [ -z "$SETPROCTITLE" ]; then
 	printf "Testing for setproctitle ... "
 	cat << EOF >_setproctitle.c
@@ -742,7 +766,5 @@ echo "   LIBDIR =		$LIBDIR"
 echo "   DATADIR =		$DATADIR"
 echo "   RUNDIR =		$RUNDIR"
 echo "   MANDIR =		$MANDIR"
-if [ "$PRIVSEP" = yes ]; then
-	echo "   PRIVSEPUSER =	$PRIVSEP_USER"
-fi
+echo "   DHCPSD_USER =	$DHCPSD_USER"
 echo

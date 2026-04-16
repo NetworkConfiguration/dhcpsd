@@ -31,7 +31,7 @@
 
 #include <stddef.h>
 
-struct ifaddrs;
+struct link_ctx;
 struct dhcp_ctx;
 struct eloop;
 struct if_head;
@@ -42,21 +42,27 @@ typedef struct cap_channel cap_channel_t;
 #endif
 
 struct ctx {
-	struct ifaddrs *ctx_ifa;
+	int ctx_argc;
+	char **ctx_argv;
 	struct dhcp_ctx *ctx_dhcp;
 	struct eloop *ctx_eloop;
 	struct if_head *ctx_ifaces;
 
+	struct srv_ctx *ctx_priv;
 	struct srv_ctx *ctx_unpriv;
 	struct plugin *ctx_plugins;
 	size_t ctx_nplugins;
 
 	unsigned int ctx_options;
 #define DHCPSD_RUN	(1U << 0) /* Set by forked stuff */
-#define DHCPSD_MAIN	(1U << 1) /* Main process */
-#define DHCPSD_UNPRIV	(1U << 2) /* Unprivileged helper */
-#define DHCPSD_LAUNCHER (1U << 3) /* Launcher process */
+#define DHCPSD_EXITING	(1U << 1) /* process will exit */
+#define DHCPSD_MAIN	(1U << 2) /* Main process */
+#define DHCPSD_PRIV	(1U << 3) /* Privileged helper */
+#define DHCPSD_UNPRIV	(1U << 4) /* Unprivileged helper */
+#define DHCPSD_LAUNCHER (1U << 5) /* Launcher process */
+#define DHCPSD_WAITIF	(1U << 6) /* wait for interfaces */
 
+	struct link_ctx *ctx_link;
 	int ctx_fork_fd;
 	int ctx_pf_inet_fd;
 #ifdef IFLR_ACTIVE
@@ -67,6 +73,16 @@ struct ctx {
 #endif
 };
 
+struct interface;
+
 int dhcpsd_dropperms(int);
+ssize_t dhcpsd_configure_pools(struct interface *);
+
+/*
+ * This is defined by the OS specific link mechanism:
+ * route(4) or rtnetlink(7)
+ */
+int link_open(struct ctx *);
+void link_free(struct ctx *);
 
 #endif /* CTX_H */

@@ -4,15 +4,16 @@ PROG=		dhcpsd
 SRCS=		dhcpsd.c common.c eloop.c if.c logerr.c
 SRCS+=		bpf.c dhcp.c dhcp_lease.c
 SRCS+=		if_none.c if_ether.c
-SRCS+=		service.c unpriv.c
+SRCS+=		service.c priv.c unpriv.c
 SRCS+=		plugin.c
-OBJS+=          ${SRCS:.c=.o}
+SRCS+=		${LINK_SRC}
+OBJS+=      ${SRCS:.c=.o}
 
 PVENDOR_SRCS=	${VENDOR_SRCS:vendor/%=${TOP}/vendor/%}
-OBJS+=		${PVENDOR_SRCS:.c=.o}
+OBJS+=			${PVENDOR_SRCS:.c=.o}
 
 PCOMPAT_SRCS=	${COMPAT_SRCS:compat/%=${TOP}/compat/%}
-OBJS+=		${PCOMPAT_SRCS:.c=.o}
+OBJS+=			${PCOMPAT_SRCS:.c=.o}
 
 CFLAGS?=	-O2
 SUBDIRS=	plugins

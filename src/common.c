@@ -414,7 +414,20 @@ inet_ntocidr(struct in_addr *addr)
 	return cidr;
 }
 
-size_t
+int
+sa_is_link(const struct sockaddr *sa)
+{
+#ifdef AF_LINK
+	return sa->sa_family == AF_LINK ? 1 : 0;
+#elif defined(AF_PACKET)
+	return sa->sa_family == AF_PACKET ? 1 : 0;
+#else
+	errno = EAFNOSUPPORT;
+	return -1;
+#endif
+}
+
+socklen_t
 sa_len(const struct sockaddr *sa)
 {
 #ifdef BSD

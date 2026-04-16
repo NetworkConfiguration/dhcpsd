@@ -67,6 +67,11 @@ srv_recv(struct srv_ctx *sctx, unsigned short e)
 
 	if (e & ELE_HANGUP) {
 	hangup:
+		if (sctx->srv_ctx->ctx_options & DHCPSD_MAIN)
+			logdebugx("%s(%d): fd %d hungup", __func__, getpid(),
+			    sctx->srv_fd);
+		close(sctx->srv_fd);
+		sctx->srv_fd = -1;
 		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_SUCCESS);
 		return -1;
 	}
@@ -204,8 +209,10 @@ srv_runv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 	}
 
 	events = eloop_waitfd(sctx->srv_fd);
-	if (events == -1)
+	if (events == -1) {
+		logerr("%s: eloop_waitfd: %d", __func__, sctx->srv_fd);
 		return -1;
+	}
 	if (srv_recv(sctx, (unsigned short)events) == -1)
 		return -1;
 
@@ -277,7 +284,8 @@ srv_init(struct ctx *ctx, const char *name,
 	default:
 		sctx->srv_fd = fdset[0];
 		close(fdset[1]);
-		logdebugx("service: spawned %s on pid %ld", name, (long)pid);
+		logdebugx("service: spawned %s on pid %ld fd %d", name,
+		    (long)pid, sctx->srv_fd);
 		return sctx;
 	}
 
