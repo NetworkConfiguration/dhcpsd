@@ -135,9 +135,9 @@ if_update(struct interface *ifp, struct sockaddr *sa)
 	struct sockaddr_ll *sll = (void *)sa;
 	ifp->if_index = (unsigned int)sll->sll_ifindex;
 	ifp->if_hwtype = sll->sll_hatype;
-	if (ifp->if_hwlen <= sizeof(ifp->if_hwaddr)) {
+	if (sll->sll_halen <= sizeof(ifp->if_hwaddr)) {
 		ifp->if_hwlen = sll->sll_halen;
-		memcpy(ifp->if_hwaddr, sll->sll_addr, ifp->if_hwlen);
+		memcpy(ifp->if_hwaddr, sll->sll_addr, sll->sll_halen);
 	}
 #endif
 }
@@ -238,7 +238,7 @@ if_learnifaces(struct ctx *ctx)
 	err = 0;
 
 err:
-	freeifaddrs(ifaddrs);
+	free(ifaddrs);
 	return err;
 }
 

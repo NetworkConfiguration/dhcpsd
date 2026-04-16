@@ -204,7 +204,7 @@ lua_run_configure_pools(struct plugin *p, struct srv_ctx *sctx,
 		pool->dp_lease_time = lease_time;
 
 	skip:
-		lua_pop(L, 4);
+		lua_pop(L, llease_time == LUA_TNUMBER ? 5 : 4);
 
 		lua_gettable(L, -1);
 		lua_pop(L, 1);
