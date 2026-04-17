@@ -514,7 +514,9 @@ unpriv_dispatch_learnif(struct srv_ctx *sctx, const void *data, size_t len)
 		goto err;
 	}
 	if_update(ifp, ifa->ifa_addr);
-	if_update_mtu(ifp);
+	/* Every interface must have an MTU */
+	if (if_update_mtu(ifp) == -1)
+		goto err;
 
 	err = 0;
 	buf = ifp;

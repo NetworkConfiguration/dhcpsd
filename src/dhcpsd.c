@@ -489,7 +489,6 @@ open_pf_inet:
 
 	if (!(ctx.ctx_options & DHCPSD_WAITIF)) {
 		if_learnifaces(&ctx);
-		npools = 0;
 		TAILQ_FOREACH(ifp, ctx.ctx_ifaces, if_next) {
 			if (argc == 0)
 				ifp->if_flags |= IF_ACTIVE;
@@ -523,6 +522,7 @@ open_pf_inet:
 			goto exit;
 	}
 
+	npools = 0;
 	TAILQ_FOREACH(ifp, ctx.ctx_ifaces, if_next) {
 		if (!(ifp->if_flags & IF_ACTIVE))
 			continue;

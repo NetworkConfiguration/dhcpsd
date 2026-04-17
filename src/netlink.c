@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * dhcpsd - netlink(7) supprt
+ * dhcpsd - netlink(7) support
  * Copyright (c) 2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
@@ -30,7 +30,6 @@
 
 #include <net/if.h>
 
-#include <asm/types.h>
 #include <errno.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
@@ -117,7 +116,7 @@ recv_again:
 		r = cb(lctx, nlm);
 	}
 
-	if ((again || !terminated) && (lctx != NULL && lctx->link_fd != fd))
+	if (again || !terminated)
 		goto recv_again;
 
 	return r;
@@ -193,7 +192,9 @@ link_open(struct ctx *ctx)
 	struct link_ctx *lctx = malloc(sizeof(*lctx));
 	struct sockaddr_nl nl = { .nl_family = AF_NETLINK,
 		.nl_groups = RTMGRP_LINK };
+#ifdef NETLINK_BROADCAST_ERROR
 	int on = 1;
+#endif
 
 	if (lctx == NULL)
 		return -1;
@@ -213,9 +214,13 @@ link_open(struct ctx *ctx)
 		return -1;
 	}
 
+	/* Routing socket can overflow if the kernel sends too many messages.
+	 * We need to reliably track state and if we can't we need to know. */
+#ifdef NETLINK_BROADCAST_ERROR
 	if (setsockopt(lctx->link_fd, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &on,
 		sizeof(on)) == -1)
 		logerr("%s: NETLINK_BROADCAST_ERROR", __func__);
+#endif
 
 	if (eloop_event_add(ctx->ctx_eloop, lctx->link_fd, ELE_READ,
 		netlink_handle, lctx) == -1) {

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * dhcpsd - route(4) supprt
+ * dhcpsd - route(4) support
  * Copyright (c) 2025 Roy Marples <roy@marples.name>
  * All rights reserved
 
@@ -115,7 +115,7 @@ route_dispatch(void *arg, unsigned short e)
 	ssize_t len;
 
 	if (e != ELE_READ) {
-		logerrx("%s: unexpeced event %d", __func__, e);
+		logerrx("%s: unexpected event 0x%04x", __func__, e);
 	}
 	len = read(lctx->link_fd, &rtm, sizeof(rtm));
 	if (len == -1) {
@@ -178,6 +178,8 @@ link_open(struct ctx *ctx)
 		return -1;
 
 #ifdef SO_RERROR
+	/* Routing socket can overflow if the kernel sends too many messages.
+	 * We need to reliably track state and if we can't we need to know. */
 	n = 1;
 	if (setsockopt(lctx->link_fd, SOL_SOCKET, SO_RERROR, &n, sizeof(n)) ==
 	    -1)
