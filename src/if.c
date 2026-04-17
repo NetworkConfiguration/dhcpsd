@@ -232,6 +232,11 @@ if_learnifaces(struct ctx *ctx)
 
 		if_update(ifp, ifa->ifa_addr);
 		if_update_output(ifp);
+		if (if_update_mtu(ifp) == -1) {
+			logerr("%s: if_update_mtu: %s", __func__, ifa->ifa_name);
+			free(ifp);
+			continue;
+		}
 
 		TAILQ_INSERT_TAIL(ctx->ctx_ifaces, ifp, if_next);
 	}
