@@ -214,7 +214,7 @@ link_open(struct ctx *ctx)
 		return -1;
 	}
 
-	/* Routing socket can overflow if the kernel sends too many messages.
+	/* netlink socket can overflow if the kernel sends too many messages.
 	 * We need to reliably track state and if we can't we need to know. */
 #ifdef NETLINK_BROADCAST_ERROR
 	if (setsockopt(lctx->link_fd, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &on,

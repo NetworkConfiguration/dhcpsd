@@ -509,7 +509,7 @@ unpriv_dispatch_learnif(struct srv_ctx *sctx, const void *data, size_t len)
 		goto err;
 	}
 	nlen = strlcpy(ifp->if_name, ifa->ifa_name, sizeof(ifp->if_name));
-	if (nlen > sizeof(ifp->if_name)) {
+	if (nlen >= sizeof(ifp->if_name)) {
 		errno = EINVAL;
 		goto err;
 	}
