@@ -209,7 +209,7 @@ dhcpsd_fork(struct ctx *ctx)
 {
 	int fork_fd[2];
 	pid_t pid;
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
 	cap_rights_t rights;
 #endif
 
@@ -227,7 +227,8 @@ dhcpsd_fork(struct ctx *ctx)
 	case 0:
 		ctx->ctx_fork_fd = fork_fd[1];
 		close(fork_fd[0]);
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
+		/* XXX This is failing on FreeBSD-15 */
 		cap_rights_init(&rights, CAP_WRITE);
 		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
 			logerr("%s: caph_rights_limit", __func__);
@@ -274,7 +275,7 @@ dhcpsd_fork(struct ctx *ctx)
 		ctx->ctx_fork_fd = fork_fd[0];
 		close(fork_fd[1]);
 
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
 		cap_rights_init(&rights, CAP_READ);
 		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
 			logerr("%s: caph_rights_limit", __func__);

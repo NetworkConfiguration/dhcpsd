@@ -594,6 +594,8 @@ $abort && exit 1
 if [ -z "$LINK_SRC" ]; then
 	printf "Testing for route ... "
 	cat << EOF >_route.c
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <net/route.h>
 int main(void) {
 	struct rt_msghdr rtm = { .rtm_type = RTM_IFINFO };
