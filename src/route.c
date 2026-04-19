@@ -193,7 +193,7 @@ link_open(struct ctx *ctx)
 #elif defined(ROUTE_MSGFILTER)
 	/* Convert the array into a bitmask. */
 	msgfilter_mask = 0;
-	for (i = 0; i < __arraycount(msgfilter); i++)
+	for (i = 0; i < ARRAYCOUNT(msgfilter); i++)
 		msgfilter_mask |= ROUTE_FILTER(msgfilter[i]);
 	if (setsockopt(lctx->link_fd, PF_ROUTE, ROUTE_MSGFILTER,
 		&msgfilter_mask, sizeof(msgfilter_mask)) == -1)
