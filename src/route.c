@@ -30,6 +30,7 @@
 #include <net/if.h>
 #include <net/route.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -114,9 +115,12 @@ route_dispatch(void *arg, unsigned short e)
 	struct rtm rtm;
 	ssize_t len;
 
-	if (e != ELE_READ) {
-		logerrx("%s: unexpected event 0x%04x", __func__, e);
-	}
+#ifdef NDEBUG
+	UNUSED(e);
+#else
+	assert(e == ELE_READ);
+#endif
+
 	len = read(lctx->link_fd, &rtm, sizeof(rtm));
 	if (len == -1) {
 		logerr("%s: read", __func__);

@@ -151,8 +151,7 @@ netlink_link(struct link_ctx *lctx, struct nlmsghdr *nlm)
 		loginfox("%s: interface has departed", ifp->if_name);
 	else if (!(ifi->ifi_flags & IFF_UP))
 		loginfox("%s: interface is down", ifp->if_name);
-	else
-		logerrx("%s: interface going away for no reason", ifp->if_name);
+
 	TAILQ_REMOVE(ctx->ctx_ifaces, ifp, if_next);
 	if_free(ifp);
 	return 0;
@@ -179,7 +178,11 @@ netlink_handle(void *arg, unsigned short e)
 		.iov_len = sizeof(buf),
 	};
 
+#ifdef NDEBUG
 	UNUSED(e);
+#else
+	assert(e == ELE_READ);
+#endif
 
 	if (netlink_get(lctx, &iov, lctx->link_fd, MSG_DONTWAIT,
 		netlink_dispatch) == -1)

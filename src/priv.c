@@ -43,7 +43,6 @@
 #include "priv.h"
 #include "queue.h"
 #include "service.h"
-#include "src/eloop.h"
 
 #define P_OPENBPF 1
 #define P_SENDBPF 2

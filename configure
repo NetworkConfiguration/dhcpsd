@@ -317,7 +317,7 @@ int main(void) {
 	return 0;
 }
 EOF
-		if $CC -fsanitize=address _test.c -o _test 2>&3; then
+		if $CC -fsanitize=address,undefined _test.c -o _test 2>&3; then
 			echo "yes"
 			echo "SANITIZEADDRESS=	yes" >>$CONFIG_MK
 			echo "CPPFLAGS+=	-DASAN" >>$CONFIG_MK
@@ -614,7 +614,6 @@ fi
 if [ -z "$LINK_SRC" ]; then
 	printf "Testing for netlink ... "
 	cat << EOF >_netlink.c
-#include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <sys/socket.h>

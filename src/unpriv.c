@@ -98,10 +98,10 @@ unpriv_getifaddrs(struct srv_ctx *ctx, struct ifaddrs **ifahead,
 	size_t rdata_len, len;
 	int err;
 
-	err = srv_run(ctx, 0, U_GETIFADDRS, match_if_index,
+	err = srv_run(ctx, NULL, U_GETIFADDRS, match_if_index,
 	    match_if_index != NULL ? sizeof(*match_if_index) : 0, &result,
 	    &rdata, &rdata_len);
-	if (err == -1)
+	if (err == -1 || result == -1)
 		return -1;
 
 	/* Should be impossible - lo0 will always exist. */
@@ -258,10 +258,13 @@ unpriv_getaddrinfo(struct srv_ctx *ctx, const char *hostname,
 		u_gai.u_gai_hints.u_ai_protocol = hints->ai_protocol;
 	}
 
-	err = srv_run(ctx, 0, U_GETADDRINFO, &u_gai, sizeof(u_gai), &result,
+	err = srv_run(ctx, NULL, U_GETADDRINFO, &u_gai, sizeof(u_gai), &result,
 	    &rdata, &rdata_len);
 	if (err == -1)
 		return -1;
+
+	if (result != 0)
+		return (int)result;
 
 	for (u_ai = rdata; rdata_len != 0; rdata_len -= sizeof(*u_ai), u_ai++) {
 		if (rdata_len < sizeof(*u_ai)) {
