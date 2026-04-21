@@ -29,7 +29,7 @@
 #define DEFS_H
 
 #define PACKAGE "dhcpsd"
-#define VERSION "0.0.6"
+#define VERSION "0.0.7"
 
 #ifndef DHCPSD_USER
 #define DHCPSD_USER "_" PACKAGE
