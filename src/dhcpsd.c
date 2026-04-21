@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <grp.h>
 #include <ifaddrs.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -324,8 +325,14 @@ dhcpsd_configure_pools(struct interface *ifp)
 			continue;
 		/* XXX When we grow DHCPv6 only open BPF if we configure
 		 * a DHCPv4 pool. */
-		if (priv_openbpf(ifp) == -1)
-			return -1;
+		if (ctx->ctx_options & DHCPSD_WAITIF) {
+			if (priv_openbpf(ifp) == -1)
+				return -1;
+		} else {
+			ifp->if_bpf = bpf_open(ifp, bpf_bootp, O_WRONLY);
+			if (ifp->if_bpf == NULL)
+				return -1;
+		}
 		/* First plugin with config wins */
 		npools += n;
 		break;
@@ -429,12 +436,16 @@ main(int argc, char **argv)
 	ctx.ctx_argc = argc;
 	ctx.ctx_argv = argv;
 
-	if (priv_init(&ctx) == NULL) {
-		logerr("%s: priv_init", __func__);
-		goto exit;
+	/* Waiting for interfaces requires a privileged helper
+	 * to open BPF sockets. */
+	if (ctx.ctx_options & DHCPSD_WAITIF) {
+		if (priv_init(&ctx) == NULL) {
+			logerr("%s: priv_init", __func__);
+			goto exit;
+		}
+		if (ctx.ctx_options & DHCPSD_RUN)
+			goto open_pf_inet;
 	}
-	if (ctx.ctx_options & DHCPSD_RUN)
-		goto open_pf_inet;
 
 	if (unpriv_init(&ctx) == NULL) {
 		logerr("%s: unpriv_init", __func__);
