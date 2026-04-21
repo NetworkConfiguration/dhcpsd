@@ -72,6 +72,11 @@ TAILQ_HEAD(if_head, interface);
 
 struct ifaddrs;
 
+int if_sockaddr_active(struct ctx *, const char *, const struct sockaddr *);
+int if_link_match_index(const struct sockaddr *, unsigned int);
+void if_update(struct interface *, struct sockaddr *);
+int if_update_mtu(struct interface *);
+void if_update_output(struct interface *);
 int if_learnifaces(struct ctx *);
 void if_free(struct interface *);
 struct interface *if_findifpfromcmsg(struct ctx *, struct msghdr *, void *);

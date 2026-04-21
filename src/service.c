@@ -54,6 +54,7 @@ struct srv_cmd {
 static ssize_t
 srv_recv(struct srv_ctx *sctx, unsigned short e)
 {
+	unsigned int options = sctx->srv_ctx->ctx_options;
 	struct srv_result *sr = &sctx->srv_result;
 	struct srv_cmd cmd;
 	struct iovec iov[] = {
@@ -67,7 +68,13 @@ srv_recv(struct srv_ctx *sctx, unsigned short e)
 
 	if (e & ELE_HANGUP) {
 	hangup:
-		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_SUCCESS);
+		if (options & DHCPSD_MAIN)
+			logdebugx("%s(%d): fd %d hungup", __func__, getpid(),
+			    sctx->srv_fd);
+		close(sctx->srv_fd);
+		sctx->srv_fd = -1;
+		eloop_exit(sctx->srv_ctx->ctx_eloop,
+		    options & DHCPSD_EXITING ? EXIT_SUCCESS : EXIT_FAILURE);
 		return -1;
 	}
 	if (e != ELE_READ) {
@@ -132,8 +139,11 @@ srv_recvl(void *arg, unsigned short e)
 {
 	struct srv_ctx *sctx = arg;
 
-	if (srv_recv(sctx, e) == -1 && !(e & ELE_HANGUP))
-		eloop_exit(sctx->srv_ctx->ctx_eloop, EXIT_FAILURE);
+	if (srv_recv(sctx, e) == -1 && !(e & ELE_HANGUP)) {
+		unsigned int options = sctx->srv_ctx->ctx_options;
+		eloop_exit(sctx->srv_ctx->ctx_eloop,
+		    options & DHCPSD_EXITING ? EXIT_SUCCESS : EXIT_FAILURE);
+	}
 }
 
 ssize_t
@@ -204,8 +214,10 @@ srv_runv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 	}
 
 	events = eloop_waitfd(sctx->srv_fd);
-	if (events == -1)
+	if (events == -1) {
+		logerr("%s: eloop_waitfd: %d", __func__, sctx->srv_fd);
 		return -1;
+	}
 	if (srv_recv(sctx, (unsigned short)events) == -1)
 		return -1;
 
@@ -277,7 +289,8 @@ srv_init(struct ctx *ctx, const char *name,
 	default:
 		sctx->srv_fd = fdset[0];
 		close(fdset[1]);
-		logdebugx("service: spawned %s on pid %ld", name, (long)pid);
+		logdebugx("service: spawned %s on pid %ld fd %d", name,
+		    (long)pid, sctx->srv_fd);
 		return sctx;
 	}
 

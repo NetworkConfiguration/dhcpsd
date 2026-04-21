@@ -53,6 +53,7 @@
 #include "if.h"
 #include "logerr.h"
 #include "plugin.h"
+#include "priv.h"
 #include "queue.h"
 #include "service.h"
 #include "unpriv.h"
@@ -95,10 +96,12 @@ dhcpsd_signal_cb(int sig, void *arg)
 #define SIGMSG "received %s, %s"
 	switch (sig) {
 	case SIGINT:
-		loginfox(SIGMSG, "SIGINT", "stopping");
+		if (ctx->ctx_options & DHCPSD_MAIN)
+			loginfox(SIGMSG, "SIGINT", "stopping");
 		break;
 	case SIGTERM:
-		loginfox(SIGMSG, "SIGTERM", "stopping");
+		if (ctx->ctx_options & DHCPSD_MAIN)
+			loginfox(SIGMSG, "SIGTERM", "stopping");
 		exit_code = EXIT_SUCCESS;
 		break;
 	default:
@@ -106,12 +109,17 @@ dhcpsd_signal_cb(int sig, void *arg)
 		return;
 	}
 
+	ctx->ctx_options |= DHCPSD_EXITING;
 	eloop_exit(ctx->ctx_eloop, exit_code);
 }
 
 int
 dhcpsd_dropperms(int do_chroot)
 {
+#ifdef ASAN
+	logwarnx("not dropping permissions due to ASAN");
+	UNUSED(do_chroot);
+#else
 	struct passwd *pw;
 
 	pw = getpwnam(DHCPSD_USER);
@@ -141,6 +149,7 @@ dhcpsd_dropperms(int do_chroot)
 		logerr("%s: error dropping privileges", __func__);
 		return -1;
 	}
+#endif
 
 	return 0;
 }
@@ -200,7 +209,7 @@ dhcpsd_fork(struct ctx *ctx)
 {
 	int fork_fd[2];
 	pid_t pid;
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
 	cap_rights_t rights;
 #endif
 
@@ -218,7 +227,8 @@ dhcpsd_fork(struct ctx *ctx)
 	case 0:
 		ctx->ctx_fork_fd = fork_fd[1];
 		close(fork_fd[0]);
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
+		/* XXX This is failing on FreeBSD-15 */
 		cap_rights_init(&rights, CAP_WRITE);
 		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
 			logerr("%s: caph_rights_limit", __func__);
@@ -265,7 +275,7 @@ dhcpsd_fork(struct ctx *ctx)
 		ctx->ctx_fork_fd = fork_fd[0];
 		close(fork_fd[1]);
 
-#ifdef HAVE_CASPER
+#ifdef HAVE_CASPERx
 		cap_rights_init(&rights, CAP_READ);
 		if (caph_rights_limit(ctx->ctx_fork_fd, &rights) == -1) {
 			logerr("%s: caph_rights_limit", __func__);
@@ -293,6 +303,37 @@ dhcpsd_send_launcher(struct ctx *ctx, int exit_code)
 	ctx->ctx_fork_fd = -1;
 }
 
+ssize_t
+dhcpsd_configure_pools(struct interface *ifp)
+{
+	struct ctx *ctx = ifp->if_ctx;
+	ssize_t npools = 0;
+	struct plugin *p;
+
+	if (!(ifp->if_flags & IF_ACTIVE))
+		return 0;
+
+	PLUGIN_FOREACH(ctx, p)
+	{
+		if (p->p_configure_pools == NULL)
+			continue;
+		ssize_t n = p->p_configure_pools(p, ifp);
+		if (n == -1 && ctx->ctx_argc != 0)
+			return -1;
+		if (n == -1 || n == 0)
+			continue;
+		/* XXX When we grow DHCPv6 only open BPF if we configure
+		 * a DHCPv4 pool. */
+		if (priv_openbpf(ifp) == -1)
+			return -1;
+		/* First plugin with config wins */
+		npools += n;
+		break;
+	}
+
+	return npools;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -306,7 +347,8 @@ main(int argc, char **argv)
 		.ctx_pf_link_fd = -1,
 #endif
 	};
-	int ch, exit_code = EXIT_FAILURE, f_flag = 0;
+	int ch, exit_code = EXIT_FAILURE;
+	bool f_flag = false;
 	size_t npools;
 	struct interface *ifp;
 	unsigned int logopts = LOGERR_LOG;
@@ -321,17 +363,22 @@ main(int argc, char **argv)
 	closefrom(STDERR_FILENO + 1);
 
 	logopts |= LOGERR_ERR; // log to stderr
-#define OPTS "dfp:"
+#define OPTS "dfp:w"
 	while ((ch = getopt(argc, argv, OPTS)) != -1) {
 		switch (ch) {
 		case 'd':
 			logopts |= LOGERR_DEBUG;
 			break;
 		case 'f':
-			f_flag = 1;
+			f_flag = true;
 			logopts |= LOGERR_ERR;	// log to stderr
 			logopts &= ~LOGERR_LOG; // don't syslog
 			break;
+		case 'w':
+			ctx.ctx_options |= DHCPSD_WAITIF;
+			break;
+		case '?':
+			goto exit;
 		}
 	}
 
@@ -379,6 +426,20 @@ main(int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
+	ctx.ctx_argc = argc;
+	ctx.ctx_argv = argv;
+
+	if (priv_init(&ctx) == NULL) {
+		logerr("%s: priv_init", __func__);
+		goto exit;
+	}
+	if (ctx.ctx_options & DHCPSD_RUN)
+		goto open_pf_inet;
+
+	if (unpriv_init(&ctx) == NULL) {
+		logerr("%s: unpriv_init", __func__);
+		goto exit;
+	}
 
 	if (ctx.ctx_plugins == NULL) {
 		loginfox("no plugins specified");
@@ -386,14 +447,12 @@ main(int argc, char **argv)
 			goto exit;
 		if (plugin_load(&ctx, "leasefile") == -1)
 			goto exit;
-	} else {
-		if (unpriv_init(&ctx) == NULL)
-			goto exit;
 	}
 
 	PLUGIN_FOREACH(&ctx, p)
 	{
-		if (ctx.ctx_options & DHCPSD_UNPRIV && !p->p_unpriv) {
+		if (ctx.ctx_options & DHCPSD_PRIV ||
+		    (ctx.ctx_options & DHCPSD_UNPRIV && !p->p_unpriv)) {
 			plugin_unload(p);
 			continue;
 		}
@@ -406,9 +465,7 @@ main(int argc, char **argv)
 		}
 	}
 
-	if (ctx.ctx_options & DHCPSD_RUN)
-		goto run;
-
+open_pf_inet:
 	ctx.ctx_pf_inet_fd = xsocket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ctx.ctx_pf_inet_fd == -1) {
 		logerr("%s: PF_INET", __func__);
@@ -423,31 +480,36 @@ main(int argc, char **argv)
 	}
 #endif
 
-	if (getifaddrs(&ctx.ctx_ifa) == -1) {
-		logerr("%s: getifaddrs", __func__);
+	if (ctx.ctx_options & DHCPSD_RUN)
+		goto run;
+
+	if (link_open(&ctx) == -1) {
+		logerr("%s: link_open", __func__);
 		goto exit;
 	}
 
-	if_learnifaces(&ctx);
-	npools = 0;
-	TAILQ_FOREACH(ifp, ctx.ctx_ifaces, if_next) {
-		if (argc == 0)
-			ifp->if_flags |= IF_ACTIVE;
-		else {
-			for (ch = 0; ch < argc; ch++) {
-				if (strcmp(argv[ch], ifp->if_name) == 0) {
-					ifp->if_flags |= IF_ACTIVE;
-					argv[ch][0] = '\0';
-					break;
+	if (!(ctx.ctx_options & DHCPSD_WAITIF)) {
+		if_learnifaces(&ctx);
+		TAILQ_FOREACH(ifp, ctx.ctx_ifaces, if_next) {
+			if (argc == 0)
+				ifp->if_flags |= IF_ACTIVE;
+			else {
+				for (ch = 0; ch < argc; ch++) {
+					if (strcmp(argv[ch], ifp->if_name) ==
+					    0) {
+						ifp->if_flags |= IF_ACTIVE;
+						argv[ch][0] = '\0';
+						break;
+					}
 				}
 			}
 		}
-	}
 
-	for (ch = 0; ch < argc; ch++) {
-		if (argv[ch][0] != '\0') {
-			logerrx("%s: no such interface", argv[ch]);
-			goto exit;
+		for (ch = 0; ch < argc; ch++) {
+			if (argv[ch][0] != '\0') {
+				logerrx("%s: no such interface", argv[ch]);
+				goto exit;
+			}
 		}
 	}
 
@@ -461,35 +523,21 @@ main(int argc, char **argv)
 			goto exit;
 	}
 
+	npools = 0;
 	TAILQ_FOREACH(ifp, ctx.ctx_ifaces, if_next) {
 		if (!(ifp->if_flags & IF_ACTIVE))
 			continue;
-		PLUGIN_FOREACH(&ctx, p)
-		{
-			if (p->p_configure_pools == NULL)
-				continue;
-			ssize_t n = p->p_configure_pools(p, ifp);
-			if (n == -1 && argc != 0)
-				goto exit;
-			if (n == -1 || n == 0)
-				continue;
-			/* XXX When we grow DHCPv6 only open BPF if we configure
-			 * a DHCPv4 pool. */
-			if (dhcp_openbpf(ifp) == -1)
-				goto exit;
-			/* First plugin with config wins */
-			npools += (size_t)n;
-			break;
-		}
+		ssize_t n = dhcpsd_configure_pools(ifp);
+		if (n == -1 && argc != 0)
+			goto exit;
+		if (n == -1 || n == 0)
+			continue;
+		npools += (size_t)n;
 	}
-	if (npools == 0) {
+	if (!(ctx.ctx_options & DHCPSD_WAITIF) && npools == 0) {
 		logerrx("no pools, nothing to serve");
 		goto exit;
 	}
-
-	/* May as well free this now */
-	freeifaddrs(ctx.ctx_ifa);
-	ctx.ctx_ifa = NULL;
 
 	loginfox("dropping to user: %s", DHCPSD_USER);
 	if (dhcpsd_dropperms(1) == -1)
@@ -603,8 +651,6 @@ run:
 
 exit:
 	plugin_unloadall(&ctx);
-	if (ctx.ctx_ifa)
-		freeifaddrs(ctx.ctx_ifa);
 	while ((ifp = TAILQ_FIRST(ctx.ctx_ifaces)) != NULL) {
 		TAILQ_REMOVE(ctx.ctx_ifaces, ifp, if_next);
 		if_free(ifp);
@@ -613,12 +659,14 @@ exit:
 	eloop_free(ctx.ctx_eloop);
 	ctx.ctx_eloop = NULL;
 	srv_free(ctx.ctx_unpriv);
+	srv_free(ctx.ctx_priv);
+	link_free(&ctx);
 #ifdef HAVE_CASPER
 	if (ctx.ctx_capnet)
 		cap_close(ctx.ctx_capnet);
 #endif
 	if (ctx.ctx_options & DHCPSD_MAIN) {
-		logdebugx("dhcpsd exited");
+		loginfox("dhcpsd exited");
 		dhcpsd_send_launcher(&ctx, exit_code);
 	}
 

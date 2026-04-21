@@ -397,7 +397,7 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 #else
 	struct bpf_version pv = { .bv_major = 0, .bv_minor = 0 };
 	struct ifreq ifr = { .ifr_flags = 0 };
-#if 0
+#if 1
 	int ibuf_len = 0;
 #endif
 	unsigned int imm;
@@ -506,7 +506,6 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 #ifdef __linux__
 	UNUSED(flags);
 #else
-#if 0
 	if (flags & (O_RDONLY | O_RDWR)) {
 		/* Get the required BPF buffer length from the kernel. */
 		if (ioctl(bpf->bpf_fd, BIOCGBLEN, &ibuf_len) == -1)
@@ -517,7 +516,6 @@ bpf_open(const struct interface *ifp, int (*filter)(const struct bpf *),
 		if (bpf->bpf_buffer == NULL)
 			goto eexit;
 	}
-#endif
 #endif
 
 	return bpf;
@@ -568,7 +566,8 @@ bpf_read(struct bpf *bpf, void *data, size_t len)
 			bytes = (ssize_t)len;
 		else
 			bytes = (ssize_t)packet.bh_caplen;
-		memcpy(data, payload, (size_t)bytes);
+		if (data)
+			memcpy(data, payload, (size_t)bytes);
 	next:
 		bpf->bpf_pos += BPF_WORDALIGN(
 		    packet.bh_hdrlen + packet.bh_caplen);

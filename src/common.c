@@ -30,6 +30,10 @@
 
 #include <netinet/in.h>
 
+#ifdef AF_PACKET
+#include <netpacket/packet.h>
+#endif
+
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <ctype.h>
@@ -414,13 +418,30 @@ inet_ntocidr(struct in_addr *addr)
 	return cidr;
 }
 
-size_t
+int
+sa_is_link(const struct sockaddr *sa)
+{
+#ifdef AF_LINK
+	return sa->sa_family == AF_LINK ? 1 : 0;
+#elif defined(AF_PACKET)
+	return sa->sa_family == AF_PACKET ? 1 : 0;
+#else
+	errno = EAFNOSUPPORT;
+	return -1;
+#endif
+}
+
+socklen_t
 sa_len(const struct sockaddr *sa)
 {
 #ifdef BSD
 	return sa->sa_len;
 #else
 	switch (sa->sa_family) {
+#ifdef AF_PACKET
+	case AF_PACKET:
+		return sizeof(struct sockaddr_ll);
+#endif
 	case AF_INET:
 		return sizeof(struct sockaddr_in);
 	case AF_INET6:

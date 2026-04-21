@@ -49,6 +49,13 @@
 #define UNUSED(a)     (void)(a)
 #define ARRAYCOUNT(a) (sizeof((a)) / sizeof((a)[0]))
 
+#ifndef ALIGNBYTES
+#define ALIGNBYTES (sizeof(int) - 1)
+#endif
+#ifndef ALIGN
+#define ALIGN(p) (((unsigned int)(p) + ALIGNBYTES) & ~ALIGNBYTES)
+#endif
+
 /* Some systems don't define timespec macros */
 #ifndef timespecclear
 #define timespecclear(tsp) (tsp)->tv_sec = (time_t)((tsp)->tv_nsec = 0L)
@@ -100,7 +107,8 @@ uint8_t inet_ntocidr(struct in_addr *);
 
 struct sockaddr;
 
-size_t sa_len(const struct sockaddr *);
+int sa_is_link(const struct sockaddr *);
+socklen_t sa_len(const struct sockaddr *);
 int sa_cmp(const struct sockaddr *, const struct sockaddr *);
 #define ss_len(ss) sa_len((const struct sockaddr *)(ss))
 int sa_pton(struct sockaddr *, const char *restrict);

@@ -152,12 +152,15 @@ struct bootp {
 #define DHCP_TTL	128
 #define DHCP_LEASE_TIME 3600
 
+struct interface;
+
 struct dhcp_pool {
 	struct in_addr dp_addr;
 	struct in_addr dp_mask;
 	struct in_addr dp_from;
 	struct in_addr dp_to;
 	uint32_t dp_lease_time;
+	struct interface *dp_ifp;
 };
 
 #define DHCP_CLIENTID_LEN 1 + 255 /* first byte is length */
@@ -213,11 +216,8 @@ struct dhcp_ctx {
 #endif
 };
 
-struct interface;
-
 struct dhcp_ctx *dhcp_new(struct ctx *);
 void dhcp_free(struct dhcp_ctx *);
-int dhcp_openbpf(struct interface *);
 void dhcp_expire_leases(struct dhcp_ctx *ctx);
 
 struct dhcp_lease *dhcp_alloclease(void);
@@ -226,6 +226,7 @@ struct dhcp_lease *dhcp_newleaseaddr(struct dhcp_ctx *,
     const struct dhcp_lease *);
 
 /* For plugins to interogate the DHCP message */
+int dhcp_cookiecmp(const struct bootp *);
 const uint8_t *dhcp_findoption(const struct bootp *, size_t, uint8_t);
 
 const char *dhcp_ftoa(uint32_t);

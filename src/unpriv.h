@@ -29,10 +29,17 @@
 #ifndef UNPRIV_H
 #define UNPRIV_H
 
+struct ctx;
 struct srv_ctx;
 struct addrinfo;
+struct ifaddrs;
+struct interface;
 
 struct srv_ctx *unpriv_init(struct ctx *);
+int unpriv_getifaddrs(struct srv_ctx *ctx, struct ifaddrs **ifahead,
+    const unsigned int *match_if_index);
+int unpriv_learnif(struct interface *ifp);
+int unpriv_freeif(struct interface *ifp);
 int unpriv_getaddrinfo(struct srv_ctx *, const char *, const char *,
     struct addrinfo *, struct addrinfo **restrict);
 void unpriv_freeaddrinfo(struct addrinfo *);
