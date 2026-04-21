@@ -10,6 +10,29 @@ env:
   CC: clang
 
 jobs:
+  # macos is a good plaform as we know it ships with a sanitier we can use
+  macos:
+    strategy:
+      matrix:
+        os: [ macos-15, macos-26 ]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install Lua
+      run: |
+        brew install lua
+
+    - name: Configure
+      run: ./configure --sanitize
+
+    - name: Build
+      run: make
+
+    - name: Test
+      run: make test
+
   ubuntu:
     strategy:
       matrix:
@@ -23,25 +46,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get -y install liblua5.4-dev
-
-    - name: Configure
-      run: ./configure
-
-    - name: Build
-      run: make
-
-  macos:
-    strategy:
-      matrix:
-        os: [ macos-15, macos-26 ]
-    runs-on: ${{ matrix.os }}
-
-    steps:
-    - uses: actions/checkout@v6
-
-    - name: Install Lua
-      run: |
-        brew install lua
 
     - name: Configure
       run: ./configure
