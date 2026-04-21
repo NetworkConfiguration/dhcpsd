@@ -1654,7 +1654,8 @@ dhcp_readudp0(struct dhcp_ctx *ctx, int fd, unsigned short events)
 		return;
 	}
 
-	if ((size_t)nread < offsetof(struct bootp, vend)) {
+	/* Must at least have enough for the DHCP cookie */
+	if ((size_t)nread < offsetof(struct bootp, vend) + sizeof(uint32_t)) {
 		logerrx("dhcp: truncated packet (%zu) from %s", nread,
 		    inet_ntoa(from.sin_addr));
 		return;
@@ -1663,8 +1664,10 @@ dhcp_readudp0(struct dhcp_ctx *ctx, int fd, unsigned short events)
 	bootp = ctx->dhcp_udp_buf;
 	ifp = if_findifpfromcmsg(ctx->dhcp_ctx, &msg, NULL);
 	if (ifp == NULL) {
-		logwarnx("dhcp: interface not found 0x%x %s", bootp->xid,
+#if 0
+		logerrx("dhcp: interface not found 0x%x %s", bootp->xid,
 		    inet_ntoa(from.sin_addr));
+#endif
 		return;
 	}
 
