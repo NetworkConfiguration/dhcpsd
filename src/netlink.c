@@ -30,6 +30,7 @@
 
 #include <net/if.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
