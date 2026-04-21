@@ -251,6 +251,8 @@ sanitize_rfc1035(char *src)
 			if (p == src || ++nlabels > NS_MAXLABELS) {
 				*p = '\0';
 				err = 1;
+				if (p == start)
+					return err;
 				break;
 			}
 
@@ -283,6 +285,8 @@ sanitize_rfc1035(char *src)
 		if (p == src) {
 			*p = '\0';
 			err = 1;
+			if (p == start)
+				return err;
 			break;
 		}
 		/* Replace with a - */
