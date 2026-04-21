@@ -372,12 +372,15 @@ dhcp_outputipudp(struct interface *ifp, const struct in_addr *src,
 		nbytes = priv_sendbpf(ifp, iov, ARRAYCOUNT(iov));
 		if (nbytes == -1)
 			logerr("%s: priv_sendbpf: %s", __func__, ifp->if_name);
-
-	} else {
+	} else if (ifp->if_bpf != NULL) {
 		nbytes = ifp->if_output(ifp, ifp->if_bpf->bpf_fd, iov,
 		    ARRAYCOUNT(iov));
 		if (nbytes == -1)
 			logerr("%s: if_output: %s", __func__, ifp->if_name);
+	} else {
+		errno = ENXIO;
+		logerr("%s: %s", __func__, ifp->if_name);
+		nbytes = -1;
 	}
 	return nbytes;
 }
