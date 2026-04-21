@@ -34,9 +34,9 @@
 #include <net/if.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <grp.h>
 #include <ifaddrs.h>
-#include <fcntl.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdbool.h>

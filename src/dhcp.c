@@ -368,12 +368,17 @@ dhcp_outputipudp(struct interface *ifp, const struct in_addr *src,
 	in_cksum(&udp, sizeof(udp), &sum);
 	udp.uh_sum = in_cksum(bootp, len, &sum);
 
-	if (ctx->dhcp_ctx->ctx_options & DHCPSD_WAITIF)
+	if (ctx->dhcp_ctx->ctx_options & DHCPSD_WAITIF) {
 		nbytes = priv_sendbpf(ifp, iov, ARRAYCOUNT(iov));
-	else
-		nbytes = writev(ifp->if_bpf->bpf_fd, iov, ARRAYCOUNT(iov));
-	if (nbytes == -1)
-		logerr("%s: priv_sendbpf: %s", __func__, ifp->if_name);
+		if (nbytes == -1)
+			logerr("%s: priv_sendbpf: %s", __func__, ifp->if_name);
+
+	} else {
+		nbytes = ifp->if_output(ifp, ifp->if_bpf->bpf_fd, iov,
+		    ARRAYCOUNT(iov));
+		if (nbytes == -1)
+			logerr("%s: if_output: %s", __func__, ifp->if_name);
+	}
 	return nbytes;
 }
 

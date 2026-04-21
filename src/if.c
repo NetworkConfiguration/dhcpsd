@@ -233,7 +233,8 @@ if_learnifaces(struct ctx *ctx)
 		if_update(ifp, ifa->ifa_addr);
 		if_update_output(ifp);
 		if (if_update_mtu(ifp) == -1) {
-			logerr("%s: if_update_mtu: %s", __func__, ifa->ifa_name);
+			logerr("%s: if_update_mtu: %s", __func__,
+			    ifa->ifa_name);
 			free(ifp);
 			continue;
 		}
@@ -384,10 +385,12 @@ if_free(struct interface *ifp)
 	srv_if_free = options & DHCPSD_MAIN && !(options & DHCPSD_EXITING);
 
 	if (srv_if_free) {
-		if (options & DHCPSD_WAITIF)
+		if (options & DHCPSD_WAITIF) {
 			loginfox("%s: deactiving interface", ifp->if_name);
-		if (priv_freeif(ifp) == -1 && errno != ESRCH)
-			logerr("%s: priv_freeif: %s", __func__, ifp->if_name);
+			if (priv_freeif(ifp) == -1 && errno != ESRCH)
+				logerr("%s: priv_freeif: %s", __func__,
+				    ifp->if_name);
+		}
 		if (unpriv_freeif(ifp) == -1 && errno != ESRCH)
 			logerr("%s: unpriv_freeif: %s", __func__, ifp->if_name);
 	}
