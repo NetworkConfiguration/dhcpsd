@@ -130,7 +130,7 @@ lf_store_leases(struct plugin *p)
 		return -1;
 	}
 
-	if (dhcp_lease_foreachaddr(dhcp_ctx, lf_write_lease, p) == -1) {
+	if (dhcp_lease_foreach(dhcp_ctx, lf_write_lease, p) == -1) {
 		logerr("%s: dhcp_lease_foreach", lf_name);
 		return -1;
 	}
