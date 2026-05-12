@@ -509,7 +509,6 @@ dhcp_plugin_validateaddr(struct ctx *ctx, const struct in_addr *addr)
 	{
 		if (p->p_validate_addr == NULL)
 			continue;
-		loginfo("FOO");
 		if (p->p_validate_addr(p, (const struct sockaddr *)&sin) ==
 		    -1) {
 			if (errno != EINVAL)
@@ -956,7 +955,7 @@ dhcp_output(struct interface *ifp, const struct dhcp_lease *lease,
 out:
 	addr.s_addr = bootp->yiaddr != INADDR_ANY ? bootp->yiaddr :
 						    bootp->ciaddr;
-	loginfox("%s: send %s 0x%x %s", ifp->if_name, dhcp_message_type(type),
+	logdebugx("%s: send %s 0x%x %s", ifp->if_name, dhcp_message_type(type),
 	    bootp->xid, inet_ntoa(addr));
 	if (bootp->giaddr != INADDR_ANY ||
 	    (bootp->ciaddr != INADDR_ANY && type != DHCP_NAK))
