@@ -213,7 +213,7 @@ srv_runv(struct srv_ctx *sctx, struct plugin *p, unsigned int cmd,
 		return -1;
 	}
 
-	events = eloop_waitfd(sctx->srv_fd);
+	events = eloop_waitfd(sctx->srv_ctx->ctx_eloop, sctx->srv_fd);
 	if (events == -1) {
 		logerr("%s: eloop_waitfd: %d", __func__, sctx->srv_fd);
 		return -1;

@@ -397,6 +397,10 @@ main(int argc, char **argv)
 		logerr("%s: eloop_new", __func__);
 		goto exit;
 	}
+	if (eloop_openfdwaiter(ctx.ctx_eloop) == -1) {
+		logerr("%s: eloop_openfdwaiter", __func__);
+		goto exit;
+	}
 	if (eloop_signal_set_cb(ctx.ctx_eloop, signals, signals_len,
 		dhcpsd_signal_cb, &ctx) == -1) {
 		logerr("%s: eloop_signal_set_cb", __func__);
