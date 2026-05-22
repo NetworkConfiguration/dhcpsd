@@ -85,6 +85,8 @@ static unsigned int dhcp_cache_oldaddr = 30;
 static unsigned int dhcp_cache_declined = 3600;
 static unsigned int dhcp_plugin_cache_declined = 30;
 
+#define DHCP_MIN_EXPIRE_NSEC	100
+
 struct dhcp_message_type {
 	uint8_t mt_type;
 	const char *mt_name;
@@ -969,13 +971,13 @@ dhcp_expire_lease(struct dhcp_ctx *ctx, struct dhcp_lease *lease)
 {
 	struct plugin *p;
 
-	if (!(lease->dl_flags & DL_LEASED))
-		return;
 	if (lease->dl_in_expire_tree) {
 		rb_tree_remove_node(&ctx->dhcp_expire_tree, lease);
 		lease->dl_in_expire_tree = false;
 		dhcp_set_expire_timeout(ctx);
 	}
+	if (!(lease->dl_flags & DL_LEASED))
+		return;
 	lease->dl_flags &= ~DL_LEASED;
 
 	PLUGIN_FOREACH(ctx->dhcp_ctx, p)
@@ -996,6 +998,11 @@ dhcp_expire_timeout(void *arg)
 	dhcp_expire_lease(ctx, lease);
 }
 
+static struct timespec dhcp_min_expire = {
+	.tv_sec = 0,
+	.tv_nsec = DHCP_MIN_EXPIRE_NSEC,
+};
+
 static void
 dhcp_set_expire_timeout(struct dhcp_ctx *ctx)
 {
@@ -1014,8 +1021,10 @@ dhcp_set_expire_timeout(struct dhcp_ctx *ctx)
 		return;
 	}
 	timespecsub(&lease->dl_expires, &now, &tv);
-	logdebugx("dhcp: earliest lease expires in %jd seconds",
-	    (intmax_t)tv.tv_sec);
+	if (timespeccmp(&tv, &dhcp_min_expire, <))
+		tv = dhcp_min_expire;
+	logdebugx("dhcp: earliest lease expires in %jd.%ld seconds",
+	    (intmax_t)tv.tv_sec, tv.tv_nsec);
 	if (eloop_timeout_add_tv(ctx->dhcp_ctx->ctx_eloop, &tv,
 		dhcp_expire_timeout, ctx) == -1)
 		logerr("%s: eloop_timeout_add_tv", __func__);
@@ -1106,6 +1115,8 @@ dhcp_declined(struct dhcp_ctx *ctx, struct dhcp_lease *lease, uint32_t flags,
 	lease->dl_flags &= ~DL_OFFERED;
 	if (lease->dl_flags & DL_LEASED)
 		dhcp_expire_lease(ctx, lease);
+	if (!(lease->dl_flags & DL_ADDRESS))
+		return 0;
 	lease->dl_flags &= ~DL_ADDRESS;
 
 	declined = dhcp_newleaseaddr(ctx, lease);
@@ -1393,11 +1404,8 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 	offer_plugin_addr:
 		/* If we had an address, split it off */
 		if (lease->dl_addr.s_addr != addr.s_addr &&
-		    lease->dl_flags & DL_ADDRESS) {
-			lease->dl_flags &= ~(
-			    DL_LEASED | DL_OFFERED | DL_INFORMED);
+		    lease->dl_flags & DL_ADDRESS)
 			dhcp_declined(ctx, lease, 0, bootp, len);
-		}
 		lease->dl_addr = addr;
 		lease->dl_flags |= DL_OFFERED;
 		lease->dl_flags &= ~(DL_LEASED | DL_ANY_DECLINED | DL_INFORMED);
@@ -1451,10 +1459,8 @@ dhcp_handlebootp(struct interface *ifp, struct bootp *bootp, size_t len,
 			goto out;
 		}
 		/* If we had an address, split it off */
-		if (lease->dl_addr.s_addr != addr.s_addr) {
-			lease->dl_flags &= ~(DL_LEASED | DL_OFFERED);
+		if (lease->dl_addr.s_addr != addr.s_addr)
 			dhcp_declined(ctx, lease, 0, bootp, len);
-		}
 		lease->dl_addr = addr;
 		lease->dl_flags |= DL_LEASED;
 		lease->dl_flags &= ~(
