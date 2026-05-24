@@ -770,6 +770,15 @@ fi
 echo >>$CONFIG_H
 echo "#endif /*CONFIG_H*/">>$CONFIG_H
 
+# This needs to happen *AFTER* our config guard ... */
+printf "Testing if we need to #undef if_mtu ... "
+if grep -q "#define[[:space:]]if_mtu[[:space:]]" /usr/include/net/if.h; then
+	echo "yes"
+	echo "#undef if_mtu" >>$CONFIG_H
+else
+	echo "no"
+fi
+
 cat <<EOF >>.clangd
 ---
 If:

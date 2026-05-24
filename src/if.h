@@ -50,9 +50,8 @@ struct ctx;
 struct dhcp_pool;
 struct iovec;
 
-#if defined(__NetBSD_Version__) && __NetBSD_Version__ <= 1000000000
-#undef if_mtu
-#endif
+/* Fix compile on NetBSD-9 */
+#include "config.h"
 
 struct interface {
 	TAILQ_ENTRY(interface) if_next;
