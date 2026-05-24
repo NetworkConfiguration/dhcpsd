@@ -85,7 +85,7 @@ static unsigned int dhcp_cache_oldaddr = 30;
 static unsigned int dhcp_cache_declined = 3600;
 static unsigned int dhcp_plugin_cache_declined = 30;
 
-#define DHCP_MIN_EXPIRE_NSEC	100
+#define DHCP_MIN_EXPIRE_NSEC 100
 
 struct dhcp_message_type {
 	uint8_t mt_type;
