@@ -947,11 +947,11 @@ dhcp_output(struct interface *ifp, const struct dhcp_lease *lease,
 	}
 
 	*p++ = DHO_END;
+	len = (size_t)(p - (uint8_t *)bootp);
 
 	/* Not needed because we memset 0 the bootp struct
 	 * and RFC2131 says the options field is variable length. */
 #if 0
-	len = (size_t)(p - (uint8_t *)bootp);
 	while (len < sizeof(*bootp)) {
 		*p++ = DHO_PAD;
 		len++;
