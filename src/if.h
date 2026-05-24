@@ -50,6 +50,10 @@ struct ctx;
 struct dhcp_pool;
 struct iovec;
 
+#if defined(__NetBSD__) && __NetBSD_Version__ <= 1000000000
+#undef if_mtu
+#endif
+
 struct interface {
 	TAILQ_ENTRY(interface) if_next;
 	struct ctx *if_ctx;

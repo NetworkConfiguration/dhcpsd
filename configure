@@ -353,6 +353,10 @@ linux*)
 		echo "SRCS+=		seccomp.c" >>$CONFIG_MK
 	fi
 	;;
+netbsd*)
+	# reallocarray(3) is guarded by _OPENBSD_SOURCE
+	echo "CPPFLAGS+=	-D_OPENBSD_SOURCE" >>$CONFIG_MK
+	;;
 qnx*)
 	echo "CPPFLAGS+=	-D__EXT" >>$CONFIG_MK
 	;;
