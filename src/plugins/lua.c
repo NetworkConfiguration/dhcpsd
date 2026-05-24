@@ -752,7 +752,7 @@ lua_run_commit_lease(struct plugin *p, struct srv_ctx *sctx,
 	int nresults;
 	unsigned int f = 0;
 
-	if (payloadlen < sizeof(dl) + sizeof(*bootp)) {
+	if (payloadlen < sizeof(dl) + DHCP_MIN_LEN) {
 		errno = EINVAL;
 		goto out;
 	}

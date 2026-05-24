@@ -151,6 +151,8 @@ struct bootp {
 
 #define DHCP_TTL	128
 #define DHCP_LEASE_TIME 3600
+/* Allow for a DHCP cookie as the bare minimum. */
+#define DHCP_MIN_LEN	((sizeof(struct bootp) - offsetof(struct bootp, vend)) + sizeof(uint32_t))
 
 struct interface;
 

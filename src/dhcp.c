@@ -948,11 +948,15 @@ dhcp_output(struct interface *ifp, const struct dhcp_lease *lease,
 
 	*p++ = DHO_END;
 
+	/* Not needed because we memset 0 the bootp struct
+	 * and RFC2131 says the options field is variable length. */
+#if 0
 	len = (size_t)(p - (uint8_t *)bootp);
 	while (len < sizeof(*bootp)) {
 		*p++ = DHO_PAD;
 		len++;
 	}
+#endif
 
 out:
 	addr.s_addr = bootp->yiaddr != INADDR_ANY ? bootp->yiaddr :
@@ -1089,8 +1093,10 @@ dhcp_commit_lease(struct dhcp_ctx *ctx, struct dhcp_lease *lease,
 		if (p->p_commit_lease == NULL)
 			continue;
 		err = p->p_commit_lease(p, lease, req, reqlen, &flags);
-		if (err == -1)
+		if (err == -1) {
+			logerr("%s: commit_lease", p->p_name);
 			continue;
+		}
 		lease->dl_flags &= ~(DL_PLUGIN_DNSA | DL_PLUGIN_DNSPTR);
 		lease->dl_flags |= (flags &
 		    (DL_PLUGIN_DNSA | DL_PLUGIN_DNSPTR));
@@ -1671,7 +1677,7 @@ dhcp_readudp0(struct dhcp_ctx *ctx, int fd, unsigned short events)
 	}
 
 	/* Must at least have enough for the DHCP cookie */
-	if ((size_t)nread < offsetof(struct bootp, vend) + sizeof(uint32_t)) {
+	if ((size_t)nread < DHCP_MIN_LEN) {
 		logerrx("dhcp: truncated packet (%zu) from %s", nread,
 		    inet_ntoa(from.sin_addr));
 		return;
